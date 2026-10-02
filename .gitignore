@@ -1,0 +1,21 @@
+# Only project source and documentation belong in the repository.
+/*
+!/.gitignore
+!/README.md
+!/CHANGELOG.md
+!/build.sh
+!/android/
+!/mac/
+!/tests/
+!/assets/
+
+# Signing material and generated files must remain local.
+**/.DS_Store
+**/private/
+**/*.keystore
+**/*.jks
+**/*.log
+**/*.class
+**/*.dex
+**/*.apk
+**/*.app/

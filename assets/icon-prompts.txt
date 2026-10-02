@@ -1,0 +1,10 @@
+Pad Display icon
+Generation mode: built-in image_gen tool
+
+Original icon prompt:
+Create one polished production application icon for an app named Pad Display, which turns an Android tablet into a Mac's USB-C secondary monitor. No text or letters anywhere. Square 1024 by 1024 image, full-bleed opaque deep midnight navy background, no surrounding page or mockup. One strong centered symbol: a large elegant desktop display in softly lit silver and icy blue, paired with a smaller thin landscape tablet overlapping its lower right corner. Both screens have a restrained luminous cyan-to-cobalt gradient that visually connects the two displays. A tiny curved cyan connection below subtly suggests a cable, without clutter. Premium macOS app icon craftsmanship, clean precise rounded device edges, subtle dimensional depth, controlled soft studio reflections, excellent contrast and recognizable silhouette at 32 pixels. Balanced simple composition, all important foreground shapes inside the central 65 percent safe area so it also works as a circular Android launcher icon. No Apple or Android logos, no cursor, no stand-alone text, no decorative dots, no extra cables. Rich but restrained color, professional and friendly, crisp edges.
+
+Rounded macOS icon edit prompt:
+Edit only the outer shape of this exact Pad Display application icon. Keep the monitor, tablet, silver edges, blue screens, cable, navy background, composition and colors unchanged. Turn the outer square navy tile into a macOS-style rounded square (continuous smooth rounded corners, corner radius about 22 percent of the tile width), centered with 6 percent transparent padding on all four sides of the canvas. Outside the rounded square must be truly transparent alpha, including all four corners. No checkerboard baked into pixels, no white or colored exterior background, no border, no new shadow beyond the shape, no text. Preserve the existing artwork inside the rounded tile faithfully. Square high-resolution production app icon suitable for an .icns file.
+
+The rounded icon is used for macOS. Android applies its system adaptive mask to the same original artwork.
