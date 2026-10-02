@@ -8,6 +8,7 @@
 #import "TouchInput.h"
 #import "AudioPCM.h"
 #import "MacAudioOutput.h"
+#import "DisplayLayout.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -104,6 +105,9 @@ static void PDLog(NSString *message) { NSLog(@"PadDisplay: %@", message); }
 @property(strong) NSPopUpButton *audioDestination;
 @property(strong) NSArray<NSMenuItem *> *audioMenuItems;
 @property(strong) PDMacAudioOutput *macAudioOutput;
+@property(strong) PDDisplayLayout *displayLayout;
+@property(copy) NSString *layoutDevice;
+@property BOOL layoutReady;
 @property(atomic) BOOL audioEnabled;
 @property(strong) NSStatusItem *statusItem;
 @property(strong) PDCapture *capture;
@@ -265,6 +269,7 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     _listener = -1; _cursorListener = -1; _audioListener=-1;
     _macAudioOutput=[PDMacAudioOutput new];
+    _displayLayout=[[PDDisplayLayout alloc] initWithDefaults:NSUserDefaults.standardUserDefaults];
     NSInteger audioChoice=[NSUserDefaults.standardUserDefaults integerForKey:@"PadAudioDestination"];
     if(audioChoice<0 || audioChoice>2)audioChoice=0;
     self.audioEnabled=audioChoice!=2;
@@ -276,7 +281,9 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     }
     _window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,530,500) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskMiniaturizable backing:NSBackingStoreBuffered defer:NO];
     _window.title = @"SidePad · USB-C 모니터"; _window.delegate = self; [_window center];
-    NSTextField *title = [self label:@"패드를 두 번째 모니터로" frame:NSMakeRect(28,344,474,38) size:25]; title.font = [NSFont boldSystemFontOfSize:25];
+    NSTextField *title = [self label:@"패드를 두 번째 모니터로" frame:NSMakeRect(28,344,332,38) size:25]; title.font = [NSFont boldSystemFontOfSize:25];
+    NSButton *securityButton = [self button:@"실행 승인 설정" frame:NSMakeRect(370,350,132,28) action:@selector(securitySettings:)];
+    securityButton.toolTip = @"시스템 설정의 개인정보 보호 및 보안을 엽니다.";
     [self label:@"USB-C로 연결한 안드로이드 패드에 맥 화면을 표시합니다." frame:NSMakeRect(28,308,474,28) size:13];
     [self label:@"화면 모드" frame:NSMakeRect(28,260,100,25) size:13];
     _mode = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(139,258,363,30) pullsDown:NO];
@@ -303,6 +310,8 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     [_audioDestination selectItemAtIndex:audioChoice];_audioDestination.target=self;_audioDestination.action=@selector(toggleAudio:);
     [_window.contentView addSubview:_audioDestination];
     NSMenu *main = [NSMenu new], *application = [NSMenu new]; NSMenuItem *root = [NSMenuItem new]; root.submenu = application; [main addItem:root];
+    [self addSetupItemsToMenu:application];
+    [application addItem:[NSMenuItem separatorItem]];
     [application addItemWithTitle:@"SidePad 종료" action:@selector(terminate:) keyEquivalent:@"q"]; NSApp.mainMenu = main;
     _statusItem = [NSStatusBar.systemStatusBar statusItemWithLength:NSVariableStatusItemLength]; _statusItem.button.title = @"▣ SidePad";
     NSMenu *menu = [NSMenu new]; NSMenuItem *show = [menu addItemWithTitle:@"SidePad 열기" action:@selector(show:) keyEquivalent:@""]; show.target = self;
@@ -311,6 +320,8 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     NSMutableArray *audioItems=[NSMutableArray new];
     for(NSInteger i=0;i<3;i++){NSMenuItem *item=[audioMenu addItemWithTitle:@[@"Mac + 패드 · 둘 다",@"패드만",@"Mac만"][i] action:@selector(chooseAudio:) keyEquivalent:@""];item.target=self;item.tag=i;item.state=i==audioChoice?NSControlStateValueOn:NSControlStateValueOff;[audioItems addObject:item];}
     _audioMenuItems=audioItems;
+    [menu addItem:[NSMenuItem separatorItem]];
+    [self addSetupItemsToMenu:menu];
     [menu addItem:[NSMenuItem separatorItem]]; [menu addItemWithTitle:@"종료" action:@selector(terminate:) keyEquivalent:@"q"]; _statusItem.menu = menu;
     [_window makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES];
     [self listen];
@@ -325,6 +336,28 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
 - (void)updateStatus:(NSString *)text {
     if (![NSThread isMainThread]) { dispatch_async(dispatch_get_main_queue(), ^{ [self updateStatus:text]; }); return; }
     _status.stringValue = text; PDLog(text);
+}
+- (void)addSetupItemsToMenu:(NSMenu *)menu {
+    NSMenuItem *security = [menu addItemWithTitle:@"실행 승인 설정 열기…" action:@selector(securitySettings:) keyEquivalent:@""];
+    security.target = self;
+    NSMenuItem *guide = [menu addItemWithTitle:@"설치·권한 안내…" action:@selector(setupGuide:) keyEquivalent:@""];
+    guide.target = self;
+}
+- (void)securitySettings:(id)sender {
+    NSURL *url = [NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?General"];
+    if (![[NSWorkspace sharedWorkspace] openURL:url]) {
+        NSAlert *alert = [NSAlert new];
+        alert.messageText = @"시스템 설정에서 실행을 허용하세요";
+        alert.informativeText = @"시스템 설정 → 개인정보 보호 및 보안 → 보안에서 SidePad의 ‘그래도 열기’를 선택하세요. 항목이 없으면 SidePad를 한 번 열어 경고를 확인한 뒤 다시 시도하세요.";
+        [alert addButtonWithTitle:@"확인"];
+        [alert beginSheetModalForWindow:_window completionHandler:nil];
+    }
+}
+- (void)setupGuide:(id)sender {
+    NSURL *guide = [[NSBundle mainBundle] URLForResource:@"StartHere-ko" withExtension:@"html"];
+    if (!guide || ![[NSWorkspace sharedWorkspace] openURL:guide]) {
+        [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://support.apple.com/ko-kr/102445"]];
+    }
 }
 - (void)permission:(id)sender { [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"]]; }
 - (void)displays:(id)sender { [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.Displays-Settings.extension"]]; }
@@ -373,11 +406,12 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     self.inputTrusted=trusted;
     _penStatus.stringValue=trusted ? [NSString stringWithFormat:@"입력 준비됨 · 펜 %llu회 / 터치 %llu회",_penEvents,_touchEvents] : @"펜·터치 · 손쉬운 사용 권한 필요";
     if (_active) {
+        if (_layoutReady && _virtualDisplay) [_displayLayout saveForDevice:_layoutDevice display:_targetDisplay];
         if (_peer && ![_peer isConnected]) { [_peer close]; _peer = nil; }
         BOOL connected = _peer != nil && _peer.configured && _capture.encodedFrames > 0;
         _status.stringValue = connected ? @"연결됨 · USB-C로 화면 전송 중" : (_peer ? @"USB 연결됨 · 첫 화면 전송 대기 중" : @"패드 연결 대기 중 · USB-C 케이블을 확인하세요.");
         NSString *timing = self.cursorRTT>0 ? [NSString stringWithFormat:@"USB 왕복 %.1f ms", self.cursorRTT] : @"커서 연결 측정 중";
-        _detail.stringValue = [NSString stringWithFormat:@"%d × %d · 영상 최대 %d fps · 패드/커서 120 Hz · %@", _capture.width, _capture.height, _capture.fps, timing];
+        _detail.stringValue = [NSString stringWithFormat:@"%d × %d · 영상 최대 %d fps · 커서 최대 120 Hz · %@", _capture.width, _capture.height, _capture.fps, timing];
         _statusItem.button.title = connected ? @"▣ SidePad ●" : @"▣ SidePad ○";
         if (!_peer && !_reconnecting && ++_reconnectTicks >= 5) {
             _reconnectTicks = 0; _reconnecting = YES; NSUInteger generation = _generation;
@@ -409,7 +443,13 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     }
     if (failed || !serials.count) { [self updateStatus:@"USB 패드를 찾을 수 없습니다. 케이블과 USB 디버깅 허용을 확인하세요."]; return NO; }
     if (serials.count > 1 && ![serials containsObject:_serial ?: @""]) { [self updateStatus:@"안드로이드 기기가 여러 대입니다. 사용할 패드만 연결해 주세요."]; return NO; }
-    _serial = [serials containsObject:_serial ?: @""] ? _serial : serials[0];
+    NSString *selectedSerial = [serials containsObject:_serial ?: @""] ? _serial : serials[0];
+    BOOL changedDevice = _serial && ![_serial isEqualToString:selectedSerial];
+    _serial = selectedSerial;
+    if (changedDevice && self.active) {
+        dispatch_async(dispatch_get_main_queue(), ^{ if (self.active && !self.quitting) { [self stop:nil]; [self start:nil]; } });
+        return NO;
+    }
     [self adb:@[@"-s",_serial,@"reverse",@"tcp:28765",@"tcp:28765"] error:&failed];
     if (failed) { [self updateStatus:@"USB 화면 전송 경로를 연결하지 못했습니다."]; return NO; }
     [self adb:@[@"-s",_serial,@"reverse",@"tcp:28766",@"tcp:28766"] error:&failed];
@@ -473,19 +513,16 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     BOOL verified = result==kCGErrorSuccess && current && CGDisplayModeGetPixelWidth(current)==width && CGDisplayModeGetPixelHeight(current)==height;
     if (current) CFRelease(current);
     if (!verified) return NO;
-    CGDisplayConfigRef config = NULL; CGRect bounds=CGDisplayBounds(_anchorDisplay);
-    if (CGBeginDisplayConfiguration(&config)==kCGErrorSuccess) { CGConfigureDisplayMirrorOfDisplay(config,_targetDisplay,kCGNullDirectDisplay); CGConfigureDisplayOrigin(config,_targetDisplay,(int)CGRectGetMaxX(bounds),(int)CGRectGetMinY(bounds)); CGCompleteDisplayConfiguration(config,kCGConfigureForSession); }
+    if ([_displayLayout restoreForDevice:_layoutDevice display:_targetDisplay]) PDLog(@"Restored saved display arrangement");
     PDLog([NSString stringWithFormat:@"Verified display logical=%dx%d native pixels=%dx%d",logicalWidth,logicalHeight,width,height]); return YES;
 }
 - (void)start:(id)sender {
     if (_active || _starting) return;
     if (_listener < 0 || _cursorListener < 0) { [self updateStatus:@"USB 수신 포트를 열 수 없습니다. 다른 SidePad 실행을 종료해 주세요."]; return; }
     _starting = YES; _startButton.enabled = NO;
-    if (!CGPreflightScreenCaptureAccess()) {
-        CGRequestScreenCaptureAccess();
-        [self updateStatus:@"맥의 화면 기록 권한을 허용한 뒤 ‘연결 시작’을 누르세요."];
-        [self permission:nil]; _starting = NO; _startButton.enabled = YES; return;
-    }
+    // ScreenCaptureKit is the authority for the capture we actually perform.
+    // CGPreflightScreenCaptureAccess may retain a stale result after approval;
+    // do not repeatedly request permission or force Settings open from it.
     [self updateStatus:@"USB-C 패드를 연결하고 있습니다…"];
     _stopButton.enabled = YES;
     NSUInteger connectionGeneration = ++_generation;
@@ -499,6 +536,7 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     });
 }
 - (void)beginCapture {
+    _layoutReady = NO; _layoutDevice = [_serial copy];
     NSArray *sizes = @[@[@1920,@1200],@[@1472,@920],@[@2944,@1840]];
     NSArray *size = sizes[_resolution.indexOfSelectedItem]; int width = [size[0] intValue], height = [size[1] intValue];
     int fps = _rate.indexOfSelectedItem == 0 ? 60 : 30;
@@ -517,7 +555,12 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
                 if (generation != self.generation || !self.starting) return;
                 SCDisplay *selected = nil;
                 for (SCDisplay *display in content.displays) if (display.displayID == self.targetDisplay) selected = display;
-                if (error || !selected) { [self stop:nil]; [self updateStatus:error ? [@"화면 캡처 실패: " stringByAppendingString:error.localizedDescription] : @"확장 화면을 찾을 수 없습니다. 다시 연결해 주세요."]; return; }
+                if (error || !selected) {
+                    [self stop:nil];
+                    BOOL declined = [error.domain isEqualToString:SCStreamErrorDomain] && error.code == SCStreamErrorUserDeclined;
+                    [self updateStatus:declined ? @"화면 기록이 허용되지 않았습니다. ‘화면 권한’에서 SidePad를 허용한 뒤 앱을 다시 여세요." : (error ? [@"화면 캡처 실패: " stringByAppendingString:error.localizedDescription] : @"확장 화면을 찾을 수 없습니다. 다시 연결해 주세요.")];
+                    return;
+                }
                 PDCapture *capture = [PDCapture new]; capture.app = self; capture.width = width; capture.height = height; capture.fps = fps;
                 if (![capture prepareEncoder]) { [self stop:nil]; [self updateStatus:@"H.264 영상 인코더를 시작하지 못했습니다."]; return; }
                 SCStreamConfiguration *config = [SCStreamConfiguration new]; config.width = width; config.height = height;
@@ -541,7 +584,7 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
                     dispatch_async(dispatch_get_main_queue(), ^{
                         if (generation != self.generation) return;
                         if (startError) { [self stop:nil]; [self updateStatus:[@"화면 전송 시작 실패: " stringByAppendingString:startError.localizedDescription]]; return; }
-                        self.active = YES; self.starting = NO; self.stopButton.enabled = YES;
+                        self.active = YES; self.starting = NO; self.stopButton.enabled = YES; self.layoutReady = YES;
                         self.mode.enabled = NO; self.resolution.enabled = NO; self.rate.enabled = NO;
                         [self updateStatus:@"USB 연결됨 · 첫 화면 전송 대기 중"];
                         PDLog(@"ScreenCaptureKit started");
@@ -552,6 +595,8 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     });
 }
 - (void)stop:(id)sender {
+    if (_layoutReady && _virtualDisplay) [_displayLayout saveForDevice:_layoutDevice display:_targetDisplay];
+    _layoutReady = NO;
     [_macAudioOutput restore];
     [self releasePen];
     [self releaseTouch];
@@ -774,6 +819,14 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
 
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
+        // A second copy must not compete for USB ports or change the tablet's session token.
+        NSString *identifier = NSBundle.mainBundle.bundleIdentifier;
+        for (NSRunningApplication *other in [NSRunningApplication runningApplicationsWithBundleIdentifier:identifier]) {
+            if (other.processIdentifier != NSProcessInfo.processInfo.processIdentifier && !other.terminated) {
+                [other activateWithOptions:NSApplicationActivateAllWindows];
+                return 0;
+            }
+        }
         NSApplication *application = NSApplication.sharedApplication; application.activationPolicy = NSApplicationActivationPolicyRegular;
         PDApp *delegate = [PDApp new]; application.delegate = delegate;
         [application run];

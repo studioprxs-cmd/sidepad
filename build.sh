@@ -41,6 +41,10 @@ clang -fobjc-arc -fmodules -O2 -mmacosx-version-min=14.0 mac/main.m -o "$pd_app/
 cp "$pd_out/SidePad.apk" "$pd_app/Contents/Resources/SidePad.apk"
 cp mac/Info.plist "$pd_app/Contents/Info.plist"
 cp assets/PadDisplay.icns "$pd_app/Contents/Resources/PadDisplayRounded.icns"
+cp assets/StartHere-ko.html "$pd_app/Contents/Resources/StartHere-ko.html"
+# These documents work before the app has been approved for its first launch.
+cp assets/StartHere-ko.html "$pd_out/처음 실행 안내.html"
+cp assets/SecuritySettings.webloc "$pd_out/실행 승인 설정 열기.webloc"
 # Keep this local development app's identity stable across rebuilds for TCC.
 codesign --force --sign - --identifier studio.prxs.paddisplay.mac --requirements '=designated => identifier "studio.prxs.paddisplay.mac"' "$pd_app"
 codesign --verify --strict "$pd_app"
