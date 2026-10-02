@@ -57,6 +57,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN |
             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY |
@@ -88,7 +89,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         status.setPadding(pad, pad, pad, pad);
         root.addView(status, new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER));
         setContentView(root);
-        showStatus("Pad Display\nUSB를 연결하고 맥에서 ‘연결 시작’을 누르세요.");
+        showStatus("SidePad\nUSB를 연결하고 맥에서 ‘연결 시작’을 누르세요.");
     }
     @Override protected void onNewIntent(android.content.Intent intent) {
         super.onNewIntent(intent); setIntent(intent);
@@ -178,7 +179,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     }
     private void startIfReady() {
         if (!resumed || !hasSurface || session != null) return;
-        if (token.isEmpty()) { showStatus("Pad Display\n맥에서 ‘연결 시작’을 누르면 자동으로 연결됩니다."); return; }
+        if (token.isEmpty()) { showStatus("SidePad\n맥에서 ‘연결 시작’을 누르면 자동으로 연결됩니다."); return; }
         Session next = new Session(token); session = next;
         new Thread(next, "PadDisplay-USB").start();
     }
@@ -299,8 +300,9 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         volatile OutputStream cursorOutput;
         final Object cursorWriteLock=new Object();
         final ArrayDeque<InputPacket> inputEvents=new ArrayDeque<>();
-        Session(String secret) { this.secret = secret; }
-        void stop() { active.set(false); synchronized(inputEvents){inputEvents.notifyAll();} try { if (socket != null) socket.close(); } catch (Exception ignored) { } try { if(cursorSocket!=null)cursorSocket.close(); } catch(Exception ignored){} }
+        final UsbAudio audio;
+        Session(String secret) { this.secret = secret;audio=new UsbAudio(MainActivity.this,secret); }
+        void stop() { active.set(false);audio.stop(); synchronized(inputEvents){inputEvents.notifyAll();} try { if (socket != null) socket.close(); } catch (Exception ignored) { } try { if(cursorSocket!=null)cursorSocket.close(); } catch(Exception ignored){} }
         void sendInput(int type,byte[] data) {
             synchronized(inputEvents) {
                 // Keep button boundaries; coalesce only consecutive movement samples.
@@ -327,6 +329,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
             }
         }
         @Override public void run() {
+            new Thread(audio,"PadDisplay-Audio").start();
             new Thread(this::sendInputs,"PadDisplay-PenInput").start();
             Thread cursorThread = new Thread(this::receiveCursor, "PadDisplay-Cursor"); cursorThread.start();
             while (active.get()) {
@@ -334,7 +337,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 Thread renderer = null;
                 AtomicBoolean decoding = new AtomicBoolean(false);
                 try {
-                    showStatus("USB 연결 중…\n맥의 Pad Display를 실행해 주세요.");
+                    showStatus("USB 연결 중…\n맥의 SidePad를 실행해 주세요.");
                     Socket current = new Socket(); socket = current;
                     current.setTcpNoDelay(true);
                     current.connect(new InetSocketAddress("127.0.0.1", 28765), 3000);
@@ -407,7 +410,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                         }
                     }
                 } catch (Exception e) {
-                    if (active.get()) { Log.w("PadDisplay", "USB reconnect: " + e); showStatus("연결 대기 중…\nUSB 케이블과 맥의 Pad Display를 확인하세요."); }
+                    if (active.get()) { Log.w("PadDisplay", "USB reconnect: " + e); showStatus("연결 대기 중…\nUSB 케이블과 맥의 SidePad를 확인하세요."); }
                 } finally {
                     decoding.set(false);
                     if (renderer != null) try { renderer.join(1000); } catch (InterruptedException ignored) { }

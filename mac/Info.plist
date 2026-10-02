@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>CFBundleName</key><string>Pad Display</string>
-  <key>CFBundleDisplayName</key><string>Pad Display</string>
+  <key>CFBundleName</key><string>SidePad</string>
+  <key>CFBundleDisplayName</key><string>SidePad</string>
   <key>CFBundleIdentifier</key><string>studio.prxs.paddisplay.mac</string>
-  <key>CFBundleExecutable</key><string>PadDisplay</string>
+  <key>CFBundleExecutable</key><string>SidePad</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>PadDisplayRounded.icns</string>
-  <key>CFBundleShortVersionString</key><string>1.6</string>
-  <key>CFBundleVersion</key><string>7</string>
+  <key>CFBundleShortVersionString</key><string>1.7</string>
+  <key>CFBundleVersion</key><string>9</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
-  <key>NSScreenCaptureUsageDescription</key><string>USB-C로 연결된 안드로이드 패드에 맥의 확장 화면 또는 주 화면을 표시합니다.</string>
+  <key>NSScreenCaptureUsageDescription</key><string>USB-C로 연결된 안드로이드 패드에 맥의 화면과 재생 중인 소리를 전달합니다.</string>
 </dict></plist>

@@ -31,8 +31,8 @@ int main(void) {
     @autoreleasepool {
         NSApplication *app = NSApplication.sharedApplication; app.activationPolicy = NSApplicationActivationPolicyAccessory;
         NSScreen *target = nil;
-        for (NSScreen *screen in NSScreen.screens) if ([screen.localizedName containsString:@"Pad Display"]) target = screen;
-        if (!target) { NSLog(@"No Pad Display screen"); return 2; }
+        for (NSScreen *screen in NSScreen.screens) if ([screen.localizedName containsString:@"SidePad"]) target = screen;
+        if (!target) { NSLog(@"No SidePad screen"); return 2; }
         NSWindow *window = [[NSWindow alloc] initWithContentRect:target.frame styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
         CheckView *view = [[CheckView alloc] initWithFrame:NSMakeRect(0,0,target.frame.size.width,target.frame.size.height)];
         window.contentView = view; window.backgroundColor = NSColor.blackColor; [window orderFront:nil];

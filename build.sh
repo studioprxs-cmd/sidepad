@@ -22,7 +22,7 @@ chmod 700 private
 if [ ! -f private/signing.keystore ]; then
   openssl rand -hex 24 > private/key-password
   chmod 600 private/key-password
-  keytool -genkeypair -keystore private/signing.keystore -alias paddisplay -keyalg RSA -keysize 3072 -validity 10000 -storepass:file private/key-password -keypass:file private/key-password -dname 'CN=Pad Display Local'
+  keytool -genkeypair -keystore private/signing.keystore -alias paddisplay -keyalg RSA -keysize 3072 -validity 10000 -storepass:file private/key-password -keypass:file private/key-password -dname 'CN=SidePad Local'
   chmod 600 private/signing.keystore
 fi
 "$pd_bt/aapt2" compile --dir android/res -o build/resources.zip
@@ -33,12 +33,12 @@ find build/classes -name '*.class' > build/classes.list
 cp build/base.apk build/unsigned.apk
 (cd build/dex && zip -q ../unsigned.apk classes.dex)
 "$pd_bt/zipalign" -f 4 build/unsigned.apk build/aligned.apk
-"$pd_bt/apksigner" sign --v4-signing-enabled false --ks private/signing.keystore --ks-key-alias paddisplay --ks-pass file:private/key-password --out "$pd_out/PadDisplay.apk" build/aligned.apk
-"$pd_bt/apksigner" verify "$pd_out/PadDisplay.apk"
-pd_app="$pd_out/Pad Display.app"
+"$pd_bt/apksigner" sign --v4-signing-enabled false --ks private/signing.keystore --ks-key-alias paddisplay --ks-pass file:private/key-password --out "$pd_out/SidePad.apk" build/aligned.apk
+"$pd_bt/apksigner" verify "$pd_out/SidePad.apk"
+pd_app="$pd_out/SidePad.app"
 mkdir -p "$pd_app/Contents/MacOS" "$pd_app/Contents/Resources"
-clang -fobjc-arc -fmodules -O2 -mmacosx-version-min=14.0 mac/main.m -o "$pd_app/Contents/MacOS/PadDisplay" -framework Cocoa -framework CoreGraphics -framework ScreenCaptureKit -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework Security -framework ApplicationServices
-cp "$pd_out/PadDisplay.apk" "$pd_app/Contents/Resources/PadDisplay.apk"
+clang -fobjc-arc -fmodules -O2 -mmacosx-version-min=14.0 mac/main.m -o "$pd_app/Contents/MacOS/SidePad" -framework Cocoa -framework CoreGraphics -framework ScreenCaptureKit -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework CoreAudio -framework Security -framework ApplicationServices
+cp "$pd_out/SidePad.apk" "$pd_app/Contents/Resources/SidePad.apk"
 cp mac/Info.plist "$pd_app/Contents/Info.plist"
 cp assets/PadDisplay.icns "$pd_app/Contents/Resources/PadDisplayRounded.icns"
 # Keep this local development app's identity stable across rebuilds for TCC.

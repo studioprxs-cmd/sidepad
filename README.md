@@ -1,12 +1,14 @@
-<p align="center"><img src="assets/PadDisplay-rounded.png" width="150" alt="Pad Display icon"></p>
+<p align="center"><img src="assets/PadDisplay-rounded.png" width="150" alt="SidePad icon"></p>
 
-# Pad Display
+# SidePad
 
 **USB-C로 안드로이드 패드를 Mac의 확장 모니터로 사용합니다.**
 
 A native macOS + Android experiment for a wired second display, with a separate low-latency cursor channel, pen input and finger touch.
 
-현재 버전: **1.6** · [변경 내역](CHANGELOG.md)
+현재 버전: **1.7** · [변경 내역](CHANGELOG.md)
+
+**[배포 페이지](https://github.com/studioprxs-cmd/sidepad/releases/latest)** · [Mac 앱 다운로드](https://github.com/studioprxs-cmd/sidepad/releases/latest/download/SidePad-macOS.zip) · [Android APK 다운로드](https://github.com/studioprxs-cmd/sidepad/releases/latest/download/SidePad.apk)
 
 ## 기능
 
@@ -20,6 +22,7 @@ A native macOS + Android experiment for a wired second display, with a separate 
 | 영상 | H.264 하드웨어 인코딩·디코딩, 최대 60fps 또는 30fps |
 | 손가락 | 탭, 더블 탭, 드래그, 두 손가락 스크롤 |
 | 펜 | 클릭, 드래그, 필압, 기울기, 옆 버튼을 누른 채 접촉해 오른쪽 클릭 |
+| 소리 | Mac 재생 소리를 패드 내장 스피커로 전달, 48kHz 스테레오 PCM |
 
 120Hz 패널·커서와 영상 프레임 속도는 서로 다릅니다. 이 버전은 영상 120fps를 제공하지 않습니다. 해상도 옵션은 현재 검증한 패드에 맞춰 구성했으며, 다른 패드에서는 화면 비율과 성능이 달라질 수 있습니다.
 
@@ -29,14 +32,20 @@ A native macOS + Android experiment for a wired second display, with a separate 
 
 1. Mac에 ADB를 설치합니다. Homebrew를 사용한다면 `brew install --cask android-platform-tools`로 설치할 수 있습니다.
 2. 패드의 개발자 옵션에서 USB 디버깅을 켠 뒤 USB-C로 연결하고, 이 Mac의 디버깅 요청을 허용합니다.
-3. `Pad Display.app`을 실행합니다. Mac 앱이 포함된 Android APK를 설치·업데이트하고 연결합니다.
-4. 처음 실행할 때 macOS **개인정보 보호 및 보안 → 화면 및 시스템 오디오 녹음**에서 Pad Display를 허용합니다.
+3. `SidePad.app`을 실행합니다. Mac 앱이 포함된 Android APK를 설치·업데이트하고 연결합니다.
+4. 처음 실행할 때 macOS **개인정보 보호 및 보안 → 화면 및 시스템 오디오 녹음**에서 SidePad를 허용합니다.
 5. 터치·펜을 사용하려면 앱의 **펜·터치 권한** 버튼을 눌러 **손쉬운 사용** 권한을 허용합니다.
 6. 기본값은 확장 모니터, 원본 Retina 해상도, 영상 최대 60fps입니다. 새 확장 화면은 기본적으로 주 화면 오른쪽에 생성됩니다. **디스플레이 배치**에서 위치를 조정할 수 있습니다.
 
 해상도나 프레임 속도를 바꾸려면 **중지 → 옵션 선택 → 연결 시작** 순서로 조작합니다. 창을 닫아도 메뉴 막대의 `▣ Pad`에서 전송이 유지됩니다. **종료**하면 가상 모니터와 이 앱의 USB 포트 연결이 해제됩니다.
 
 Mac 앱은 로컬 개발용 서명이며 Apple 공증을 받지 않았습니다. 내려받은 앱은 macOS의 일반적인 앱 열기 절차에 따라 허용하거나, 아래 절차로 직접 빌드할 수 있습니다.
+
+### 패드 스피커
+
+Mac 앱의 **소리 출력**에서 **Mac + 패드 · 둘 다 / 패드만 / Mac만**을 선택합니다. 메뉴 막대의 SidePad에도 같은 메뉴가 있습니다. 기본값은 둘 다이며 선택을 기억합니다. 패드의 미디어 볼륨 버튼으로 음량을 조절합니다. Mac에서 재생되는 시스템 오디오를 전달하며 마이크는 수집하지 않습니다. 패드만 선택하면 연결 중 Mac 출력을 음소거합니다. 다른 출력을 선택하거나 연결을 끊거나 앱을 종료하면 앱이 변경한 음소거 상태를 복원합니다. 음소거를 지원하지 않는 Mac 출력 장치는 둘 다로 유지합니다.
+
+영상·커서와 별도 USB 경로를 사용하고, 무압축 PCM 48kHz / 스테레오 / 16비트로 전송합니다. 대역폭은 약 1.54Mbps이며 Android 내장 스피커를 우선 선택합니다. 기기나 재생 앱에 따라 영상과 소리의 지연 차이가 있을 수 있습니다.
 
 ### 터치와 펜
 
@@ -56,9 +65,10 @@ Mac virtual display → ScreenCaptureKit → VideoToolbox H.264
 
 macOS cursor position + image → separate USB channel → Android SurfaceControl
 Android pen + finger events → same channel in reverse → macOS CoreGraphics input
+Mac system audio → dedicated USB channel → Android AudioTrack → built-in speaker
 ```
 
-영상용 `127.0.0.1:28765`, 커서·입력용 `127.0.0.1:28766`만 사용하고 실행마다 생성하는 임의 토큰으로 연결을 인증합니다. 앱의 영상 전송에는 인터넷·클라우드 서버를 사용하지 않으며 영상 파일을 저장하지 않습니다. 3K 영상 목표 비트레이트는 36Mbps입니다.
+영상용 `127.0.0.1:28765`, 커서·입력용 `127.0.0.1:28766`, 오디오용 `127.0.0.1:28767`을 사용하고 실행마다 생성하는 임의 토큰으로 연결을 인증합니다. 앱 전송에는 인터넷·클라우드 서버를 사용하지 않으며 영상·소리 파일을 저장하지 않습니다. 3K 영상 목표 비트레이트는 36Mbps입니다.
 
 커서 위치는 최대 120Hz로 확인합니다. 움직임이 없거나 패드 밖에 있으면 위치 패킷은 약 10Hz 연결 확인용으로 줄이고, Android는 동일 위치·표시 상태의 중복 합성 작업을 생략합니다. macOS 커서 모양은 최대 15Hz로 확인하고 바뀔 때만 PNG와 hotspot을 보냅니다. UI의 **USB 왕복 시간**은 통신 측정치이며, 손가락부터 화면까지의 전체 지연을 뜻하지 않습니다.
 
@@ -76,7 +86,7 @@ sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools'
 bash build.sh
 ```
 
-결과는 `build/Pad Display.app`, `build/PadDisplay.apk`입니다. `PAD_DISPLAY_OUTPUT`으로 출력 폴더를, `ANDROID_BUILD_TOOLS_VERSION`으로 Build Tools 버전을 바꿀 수 있습니다. 경로에 공백이 있으면 환경 변수 값을 따옴표로 감싸세요.
+결과는 `build/SidePad.app`, `build/SidePad.apk`입니다. `PAD_DISPLAY_OUTPUT`으로 출력 폴더를, `ANDROID_BUILD_TOOLS_VERSION`으로 Build Tools 버전을 바꿀 수 있습니다. 경로에 공백이 있으면 환경 변수 값을 따옴표로 감싸세요.
 
 기존 묶음 도구를 재사용하려면 `PAD_DISPLAY_TOOLCHAIN=/path/to/toolchain`을 지정할 수 있습니다. 이 옵션은 `jdk/jdk-17.0.20.1+1/Contents/Home`, `build-tools/android-15`, `platform/android-35/android.jar` 구조를 사용합니다. `JAVA_HOME`을 따로 지정하면 그 JDK를 우선합니다.
 
@@ -88,7 +98,7 @@ Android 서명 키는 최초 빌드 때 `private/`에 생성됩니다. 이후 �
 bash tests/run.sh
 ```
 
-제스처 상태 전환, 터치·펜 패킷 파싱, 필압 필드, 버튼 해제, 픽셀 스크롤과 잘못된 입력 거부를 검사합니다. 이 테스트는 Mac에 실제 입력을 게시하지 않습니다.
+제스처 상태 전환, 터치·펜 패킷 파싱, 필압 필드, 버튼 해제, 픽셀 스크롤과 잘못된 입력 거부를 검사합니다. 오디오 테스트는 평면·인터리브 float PCM, 채널 순서, 리틀 엔디언 변환, 클리핑, 비정상 값과 잘못된 버퍼 거부를 확인합니다. 이 테스트는 Mac에 실제 입력을 게시하거나 소리를 재생하지 않습니다.
 
 `mac/check-display.m`은 패드용 애니메이션 측정 화면, `mac/check-touch.m`은 터치·스크롤 확인 창, `mac/check-pen.m`은 필압 확인 창입니다. 실제 연결 기기에서 화면 전송과 입력 결과를 별도로 검증해야 합니다.
 
@@ -96,7 +106,7 @@ bash tests/run.sh
 
 ## 현재 제약
 
-확장 모니터 생성은 비공개 CoreGraphics API를 사용합니다. macOS 업데이트에 따라 달라질 수 있으며 생성이 안 되면 **화면 복제**를 선택할 수 있습니다. 글로벌 커서 이미지 API도 deprecated 상태여서 사용할 수 없으면 기본 화살표를 사용합니다. 오디오 전송은 아직 없고, DRM 영상은 macOS 캡처 제한의 영향을 받습니다. DisplayLink나 Apple Sidecar의 공식 구현 또는 호환 드라이버가 아닙니다.
+확장 모니터 생성은 비공개 CoreGraphics API를 사용합니다. macOS 업데이트에 따라 달라질 수 있으며 생성이 안 되면 **화면 복제**를 선택할 수 있습니다. 글로벌 커서 이미지 API도 deprecated 상태여서 사용할 수 없으면 기본 화살표를 사용합니다. DRM 콘텐츠는 macOS 캡처 제한의 영향을 받습니다. DisplayLink나 Apple Sidecar의 공식 구현 또는 호환 드라이버가 아닙니다.
 
 ## 참고 자료
 

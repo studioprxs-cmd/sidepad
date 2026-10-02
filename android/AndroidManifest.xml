@@ -1,8 +1,8 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="studio.prxs.paddisplay" android:versionCode="7" android:versionName="1.6">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="studio.prxs.paddisplay" android:versionCode="9" android:versionName="1.7">
   <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35" />
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
-  <application android:label="Pad Display" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:theme="@android:style/Theme.Material.NoActionBar" android:allowBackup="false" android:usesCleartextTraffic="false">
+  <application android:label="SidePad" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:theme="@android:style/Theme.Material.NoActionBar" android:allowBackup="false" android:usesCleartextTraffic="false">
     <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop" android:screenOrientation="userLandscape" android:configChanges="orientation|screenSize|keyboardHidden">
       <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
     </activity>

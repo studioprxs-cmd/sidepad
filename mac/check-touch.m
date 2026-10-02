@@ -31,10 +31,10 @@
 @end
 int main(void){@autoreleasepool{
     NSApplication *app=NSApplication.sharedApplication;app.activationPolicy=NSApplicationActivationPolicyAccessory;
-    NSScreen *screen=nil;for(NSScreen *s in NSScreen.screens)if([s.localizedName containsString:@"Pad Display"])screen=s;if(!screen)return 2;
+    NSScreen *screen=nil;for(NSScreen *s in NSScreen.screens)if([s.localizedName containsString:@"SidePad"])screen=s;if(!screen)return 2;
     NSRect rect=NSInsetRect(screen.frame,35,35);rect.size.height-=25;
     NSWindow *window=[[NSWindow alloc]initWithContentRect:rect styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
-    window.title=@"Pad Display · 터치 테스트";window.contentView=[[TouchCheckView alloc]initWithFrame:NSMakeRect(0,0,rect.size.width,rect.size.height)];
+    window.title=@"SidePad · 터치 테스트";window.contentView=[[TouchCheckView alloc]initWithFrame:NSMakeRect(0,0,rect.size.width,rect.size.height)];
     window.level=NSFloatingWindowLevel;
     [window setFrame:rect display:YES];
     [window makeKeyAndOrderFront:nil];[app activateIgnoringOtherApps:YES];

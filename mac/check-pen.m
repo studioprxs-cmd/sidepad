@@ -35,11 +35,11 @@
 @end
 int main(void){@autoreleasepool{
     NSApplication *app=NSApplication.sharedApplication;app.activationPolicy=NSApplicationActivationPolicyAccessory;
-    NSScreen *screen=nil;for(NSScreen *s in NSScreen.screens)if([s.localizedName containsString:@"Pad Display"])screen=s;
+    NSScreen *screen=nil;for(NSScreen *s in NSScreen.screens)if([s.localizedName containsString:@"SidePad"])screen=s;
     if(!screen)return 2;
     NSRect frame=NSInsetRect(screen.frame,40,40);frame.size.height-=25;
     NSWindow *window=[[NSWindow alloc]initWithContentRect:frame styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
-    window.title=@"Pad Display · 펜 테스트";window.contentView=[[PenCheckView alloc]initWithFrame:NSMakeRect(0,0,frame.size.width,frame.size.height)];
+    window.title=@"SidePad · 펜 테스트";window.contentView=[[PenCheckView alloc]initWithFrame:NSMakeRect(0,0,frame.size.width,frame.size.height)];
     [window makeKeyAndOrderFront:nil];[app activateIgnoringOtherApps:YES];
     [NSTimer scheduledTimerWithTimeInterval:300 repeats:NO block:^(NSTimer *timer){[app terminate:nil];}];
     [app run];
