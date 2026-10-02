@@ -40,6 +40,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.ArrayDeque;
+import java.util.UUID;
 
 /** USB-only display receiver. It opens no listening port and requests no storage permission. */
 public final class MainActivity extends Activity implements SurfaceHolder.Callback {
@@ -50,6 +51,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     private volatile Session session;
     private volatile boolean resumed, hasSurface;
     private String token = "";
+    private String foregroundID, pendingLaunchID;
     private int videoWidth = 1920, videoHeight = 1200;
     private TouchGesture touch;
     private boolean penContact,penInRange;
@@ -66,6 +68,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         token = getIntent().getStringExtra("token");
         if (token == null) token = getPreferences(0).getString("token", "");
         else getPreferences(0).edit().putString("token", token).apply();
+        pendingLaunchID = getIntent().getStringExtra("foreground");
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
         video = new SurfaceView(this);
@@ -95,7 +98,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         super.onNewIntent(intent); setIntent(intent);
         String next = intent.getStringExtra("token");
         if (next != null) { token = next; getPreferences(0).edit().putString("token", next).apply(); }
-        stopSession(); startIfReady();
+        pendingLaunchID = intent.getStringExtra("foreground");
+        stopSession();
     }
     private void requestFastDisplay() {
         Display display = getWindowManager().getDefaultDisplay();
@@ -108,7 +112,14 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
             }
         }
     }
-    @Override protected void onResume() { super.onResume(); resumed = true; requestFastDisplay(); startIfReady(); }
+    @Override protected void onResume() {
+        super.onResume(); resumed = true;
+        foregroundID = pendingLaunchID != null ? pendingLaunchID : UUID.randomUUID().toString();
+        pendingLaunchID = null;
+        // A recreated activity must not reuse an earlier Mac launch after a manual stop.
+        getIntent().removeExtra("foreground");
+        requestFastDisplay(); startIfReady();
+    }
     @Override protected void onPause() { resumed = false; stopSession(); super.onPause(); }
     @Override public void surfaceCreated(SurfaceHolder holder) {
         hasSurface = true;
@@ -293,7 +304,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         InputPacket(int type,byte[] data){this.type=type;this.data=data;}
     }
     private final class Session implements Runnable {
-        final String secret;
+        final String secret, foreground = foregroundID;
         final AtomicBoolean active = new AtomicBoolean(true);
         volatile Socket socket;
         volatile Socket cursorSocket;
@@ -341,9 +352,10 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                     Socket current = new Socket(); socket = current;
                     current.setTcpNoDelay(true);
                     current.connect(new InetSocketAddress("127.0.0.1", 28765), 3000);
+                    if (!active.get()) { current.close(); break; }
                     // Idle desktops need not produce frames, so no socket read timeout is used.
                     OutputStream out = current.getOutputStream();
-                    out.write(("PADDISPLAY/1 " + secret + "\n").getBytes(StandardCharsets.UTF_8)); out.flush();
+                    out.write(("PADDISPLAY/2 " + secret + " " + foreground + "\n").getBytes(StandardCharsets.UTF_8)); out.flush();
                     DataInputStream input = new DataInputStream(current.getInputStream());
                     long received = 0;
                     while (active.get()) {

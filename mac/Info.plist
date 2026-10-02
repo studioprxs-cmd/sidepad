@@ -7,8 +7,8 @@
   <key>CFBundleExecutable</key><string>SidePad</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>PadDisplayRounded.icns</string>
-  <key>CFBundleShortVersionString</key><string>1.8</string>
-  <key>CFBundleVersion</key><string>11</string>
+  <key>CFBundleShortVersionString</key><string>1.9</string>
+  <key>CFBundleVersion</key><string>13</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSScreenCaptureUsageDescription</key><string>USB-C로 연결된 안드로이드 패드에 맥의 화면과 재생 중인 소리를 전달합니다.</string>

@@ -9,6 +9,8 @@
 #import "AudioPCM.h"
 #import "MacAudioOutput.h"
 #import "DisplayLayout.h"
+#import "ForegroundSession.h"
+#import "Updater.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -102,10 +104,13 @@ static void PDLog(NSString *message) { NSLog(@"PadDisplay: %@", message); }
 @property double touchScrollX,touchScrollY;
 @property(strong) NSPopUpButton *mode, *resolution, *rate;
 @property(strong) NSButton *startButton, *stopButton;
+@property(strong) NSButton *updateButton;
+@property(strong) PDUpdater *updater;
 @property(strong) NSPopUpButton *audioDestination;
 @property(strong) NSArray<NSMenuItem *> *audioMenuItems;
 @property(strong) PDMacAudioOutput *macAudioOutput;
 @property(strong) PDDisplayLayout *displayLayout;
+@property(strong) PDForegroundSession *foregroundSession;
 @property(copy) NSString *layoutDevice;
 @property BOOL layoutReady;
 @property(atomic) BOOL audioEnabled;
@@ -124,7 +129,7 @@ static void PDLog(NSString *message) { NSLog(@"PadDisplay: %@", message); }
 @property(atomic) BOOL inputTrusted;
 @property(copy) NSString *token, *serial, *adbPath;
 @property int listener, cursorListener, audioListener;
-@property BOOL starting, active, quitting, reconnecting;
+@property BOOL starting, active, quitting, reconnecting, preparingCapture, screenCaptureDenied;
 @property int reconnectTicks;
 @property NSUInteger generation;
 @property CGDirectDisplayID targetDisplay;
@@ -133,6 +138,8 @@ static void PDLog(NSString *message) { NSLog(@"PadDisplay: %@", message); }
 - (void)updateStatus:(NSString *)text;
 - (void)start:(id)sender;
 - (void)stop:(id)sender;
+- (void)stopCapture;
+- (void)pauseForPeer:(PDPeer *)peer;
 @end
 
 static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoFlags flags, CMSampleBufferRef sample) {
@@ -203,7 +210,7 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
             NSDictionary *config = @{@"width":@(_width), @"height":@(_height), @"fps":@(_fps),
                 @"sps":[spsData base64EncodedStringWithOptions:0], @"pps":[ppsData base64EncodedStringWithOptions:0]};
             NSData *json = [NSJSONSerialization dataWithJSONObject:config options:0 error:nil];
-            if (![peer packet:1 data:json]) { if (_app.peer == peer) _app.peer = nil; return; }
+            if (![peer packet:1 data:json]) { dispatch_async(dispatch_get_main_queue(), ^{ [self.app pauseForPeer:peer]; }); return; }
             peer.configured = YES;
         }
         [output appendData:spsData]; [output appendData:ppsData];
@@ -221,7 +228,7 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
         [output appendBytes:prefix length:4]; [output appendBytes:data+offset length:length]; offset += length;
     }
     if ([peer packet:2 data:output]) { _encodedFrames++; _encodedBytes += output.length; }
-    else { if (_app.peer == peer) _app.peer = nil; PDLog(@"Tablet disconnected; waiting for reconnect"); }
+    else { dispatch_async(dispatch_get_main_queue(), ^{ [self.app pauseForPeer:peer]; }); }
 }
 - (void)sendAudio:(CMSampleBufferRef)sample {
     PDPeer *peer=_app.audioPeer;
@@ -243,7 +250,11 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     }else if(_app.audioPeer==peer)_app.audioPeer=nil;
 }
 - (void)stream:(SCStream *)stream didStopWithError:(NSError *)error {
-    dispatch_async(dispatch_get_main_queue(), ^{ [self.app stop:nil]; [self.app updateStatus:[@"화면 전송 중단: " stringByAppendingString:error.localizedDescription]]; });
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self.app.capture != self) return;
+        self.app.screenCaptureDenied=[error.domain isEqualToString:SCStreamErrorDomain] && error.code==SCStreamErrorUserDeclined;
+        [self.app stop:nil]; [self.app updateStatus:[@"화면 전송 중단: " stringByAppendingString:error.localizedDescription]];
+    });
 }
 - (void)stop {
     atomic_store(&running, false);
@@ -270,6 +281,7 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     _listener = -1; _cursorListener = -1; _audioListener=-1;
     _macAudioOutput=[PDMacAudioOutput new];
     _displayLayout=[[PDDisplayLayout alloc] initWithDefaults:NSUserDefaults.standardUserDefaults];
+    _foregroundSession=[PDForegroundSession new];
     NSInteger audioChoice=[NSUserDefaults.standardUserDefaults integerForKey:@"PadAudioDestination"];
     if(audioChoice<0 || audioChoice>2)audioChoice=0;
     self.audioEnabled=audioChoice!=2;
@@ -279,7 +291,7 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     for (NSString *path in @[@"/opt/homebrew/bin/adb", @"/usr/local/bin/adb", [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Android/sdk/platform-tools/adb"]]) {
         if ([[NSFileManager defaultManager] isExecutableFileAtPath:path]) { _adbPath = path; break; }
     }
-    _window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,530,500) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskMiniaturizable backing:NSBackingStoreBuffered defer:NO];
+    _window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,530,544) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskMiniaturizable backing:NSBackingStoreBuffered defer:NO];
     _window.title = @"SidePad · USB-C 모니터"; _window.delegate = self; [_window center];
     NSTextField *title = [self label:@"패드를 두 번째 모니터로" frame:NSMakeRect(28,344,332,38) size:25]; title.font = [NSFont boldSystemFontOfSize:25];
     NSButton *securityButton = [self button:@"실행 승인 설정" frame:NSMakeRect(370,350,132,28) action:@selector(securitySettings:)];
@@ -294,6 +306,12 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     [_resolution selectItemAtIndex:2]; [_window.contentView addSubview:_resolution];
     [self label:@"프레임 속도" frame:NSMakeRect(28,180,100,25) size:13];
     _rate = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(139,178,363,30) pullsDown:NO]; [_rate addItemsWithTitles:@[@"60 fps", @"30 fps"]]; [_window.contentView addSubview:_rate];
+    NSDictionary *options=@{@"PadDisplayMode":_mode,@"PadDisplayResolution":_resolution,@"PadDisplayRate":_rate};
+    for (NSString *key in options) {
+        NSPopUpButton *button=options[key]; id saved=[NSUserDefaults.standardUserDefaults objectForKey:key];
+        if ([saved isKindOfClass:NSNumber.class] && [saved integerValue]>=0 && [saved integerValue]<button.numberOfItems) [button selectItemAtIndex:[saved integerValue]];
+        button.target=self; button.action=@selector(rememberOptions:);
+    }
     _status = [self label:@"연결을 준비하고 있습니다." frame:NSMakeRect(28,112,474,50) size:14];
     _detail = [self label:@"패드는 맥 화면 오른쪽에 배치됩니다. 마우스와 창을 오른쪽으로 옮기세요." frame:NSMakeRect(28,75,474,32) size:11]; _detail.textColor = NSColor.secondaryLabelColor;
     [self button:@"화면 권한" frame:NSMakeRect(28,25,102,34) action:@selector(permission:)];
@@ -309,6 +327,13 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     [_audioDestination addItemsWithTitles:@[@"Mac + 패드 · 둘 다",@"패드만",@"Mac만"]];
     [_audioDestination selectItemAtIndex:audioChoice];_audioDestination.target=self;_audioDestination.action=@selector(toggleAudio:);
     [_window.contentView addSubview:_audioDestination];
+    NSString *version=[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
+    NSTextField *versionLabel=[self label:[@"SidePad " stringByAppendingString:version] frame:NSMakeRect(28,499,250,23) size:12];
+    versionLabel.textColor=NSColor.secondaryLabelColor;
+    _updateButton=[self button:@"업데이트 확인" frame:NSMakeRect(350,494,152,30) action:@selector(checkUpdates:)];
+    _updater=[PDUpdater new];
+    __weak PDApp *weakSelf=self;
+    _updater.stateChanged=^(NSString *title) { weakSelf.updateButton.title=title; weakSelf.updateButton.enabled=!weakSelf.updater.busy; };
     NSMenu *main = [NSMenu new], *application = [NSMenu new]; NSMenuItem *root = [NSMenuItem new]; root.submenu = application; [main addItem:root];
     [self addSetupItemsToMenu:application];
     [application addItem:[NSMenuItem separatorItem]];
@@ -338,10 +363,19 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     _status.stringValue = text; PDLog(text);
 }
 - (void)addSetupItemsToMenu:(NSMenu *)menu {
+    NSMenuItem *update=[menu addItemWithTitle:@"업데이트 확인…" action:@selector(checkUpdates:) keyEquivalent:@""];
+    update.target=self;
     NSMenuItem *security = [menu addItemWithTitle:@"실행 승인 설정 열기…" action:@selector(securitySettings:) keyEquivalent:@""];
     security.target = self;
     NSMenuItem *guide = [menu addItemWithTitle:@"설치·권한 안내…" action:@selector(setupGuide:) keyEquivalent:@""];
     guide.target = self;
+    NSMenuItem *repair=[menu addItemWithTitle:@"화면 기록 승인 복구…" action:@selector(repairScreenPermission:) keyEquivalent:@""];
+    repair.target=self;
+}
+- (void)checkUpdates:(id)sender { [self show:nil]; [_updater check]; }
+- (BOOL)validateMenuItem:(NSMenuItem *)item {
+    if (item.action==@selector(checkUpdates:)) return !_updater.busy;
+    return YES;
 }
 - (void)securitySettings:(id)sender {
     NSURL *url = [NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?General"];
@@ -360,6 +394,23 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     }
 }
 - (void)permission:(id)sender { [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"]]; }
+- (void)repairScreenPermission:(id)sender {
+    NSAlert *alert=[NSAlert new]; alert.messageText=@"SidePad 화면 기록 승인을 다시 등록할까요?";
+    alert.informativeText=@"이전 버전의 서명으로 저장된 승인은 켜져 있어도 새 앱에 적용되지 않을 수 있습니다. SidePad의 화면 기록 승인만 초기화합니다. 새 요청을 허용하고 시스템 설정에서 SidePad를 켠 뒤 앱을 다시 실행해 주세요.";
+    [alert addButtonWithTitle:@"승인 다시 등록"]; [alert addButtonWithTitle:@"취소"];
+    if ([alert runModal]!=NSAlertFirstButtonReturn) return;
+    [self stop:nil];
+    NSTask *task=[NSTask new]; task.executableURL=[NSURL fileURLWithPath:@"/usr/bin/tccutil"];
+    task.arguments=@[@"reset",@"ScreenCapture",@"studio.prxs.paddisplay.mac"];
+    NSError *error=nil;
+    if (![task launchAndReturnError:&error]) { [self updateStatus:@"승인을 초기화하지 못했습니다. 시스템 설정에서 SidePad 항목을 제거한 뒤 다시 추가해 주세요."]; return; }
+    [task waitUntilExit];
+    if (task.terminationStatus!=0) { [self updateStatus:@"승인을 초기화하지 못했습니다. 시스템 설정에서 SidePad 항목을 제거한 뒤 다시 추가해 주세요."]; return; }
+    self.screenCaptureDenied=YES;
+    CGRequestScreenCaptureAccess(); // Only this explicit repair action requests permission.
+    [self permission:nil];
+    [self updateStatus:@"새 SidePad의 화면 기록을 허용한 뒤 앱을 종료했다가 다시 열어 주세요."];
+}
 - (void)displays:(id)sender { [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.Displays-Settings.extension"]]; }
 - (void)inputPermission:(id)sender {
     AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)@{(__bridge NSString *)kAXTrustedCheckOptionPrompt:@YES});
@@ -399,6 +450,11 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
         });
     }];
 }
+- (void)rememberOptions:(id)sender {
+    [NSUserDefaults.standardUserDefaults setInteger:_mode.indexOfSelectedItem forKey:@"PadDisplayMode"];
+    [NSUserDefaults.standardUserDefaults setInteger:_resolution.indexOfSelectedItem forKey:@"PadDisplayResolution"];
+    [NSUserDefaults.standardUserDefaults setInteger:_rate.indexOfSelectedItem forKey:@"PadDisplayRate"];
+}
 - (void)tick:(id)sender {
     [self applyAudioOutput];
     BOOL trusted=AXIsProcessTrusted();
@@ -407,21 +463,23 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     _penStatus.stringValue=trusted ? [NSString stringWithFormat:@"입력 준비됨 · 펜 %llu회 / 터치 %llu회",_penEvents,_touchEvents] : @"펜·터치 · 손쉬운 사용 권한 필요";
     if (_active) {
         if (_layoutReady && _virtualDisplay) [_displayLayout saveForDevice:_layoutDevice display:_targetDisplay];
-        if (_peer && ![_peer isConnected]) { [_peer close]; _peer = nil; }
+        if (_peer && ![_peer isConnected]) { [self pauseForPeer:_peer]; return; }
         BOOL connected = _peer != nil && _peer.configured && _capture.encodedFrames > 0;
         _status.stringValue = connected ? @"연결됨 · USB-C로 화면 전송 중" : (_peer ? @"USB 연결됨 · 첫 화면 전송 대기 중" : @"패드 연결 대기 중 · USB-C 케이블을 확인하세요.");
         NSString *timing = self.cursorRTT>0 ? [NSString stringWithFormat:@"USB 왕복 %.1f ms", self.cursorRTT] : @"커서 연결 측정 중";
         _detail.stringValue = [NSString stringWithFormat:@"%d × %d · 영상 최대 %d fps · 커서 최대 120 Hz · %@", _capture.width, _capture.height, _capture.fps, timing];
         _statusItem.button.title = connected ? @"▣ SidePad ●" : @"▣ SidePad ○";
-        if (!_peer && !_reconnecting && ++_reconnectTicks >= 5) {
-            _reconnectTicks = 0; _reconnecting = YES; NSUInteger generation = _generation;
-            dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY,0), ^{
-                if (self.active && generation == self.generation) [self connectUSB];
-                dispatch_async(dispatch_get_main_queue(), ^{ self.reconnecting = NO; });
-            });
-        }
-        if (_peer) _reconnectTicks = 0;
     }
+    // Transport maintenance must never launch an app, wake the tablet, or install an APK.
+    // The foreground Android activity retries its own connection after cable recovery.
+    if (_foregroundSession.paired && _serial && !_peer && !_starting && !_reconnecting && ++_reconnectTicks >= 5) {
+        _reconnectTicks = 0; _reconnecting = YES; NSString *serial = [_serial copy];
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY,0), ^{
+            [self repairUSBForSerial:serial];
+            dispatch_async(dispatch_get_main_queue(), ^{ self.reconnecting = NO; });
+        });
+    }
+    if (_peer) _reconnectTicks = 0;
 }
 - (NSString *)adb:(NSArray<NSString *> *)arguments error:(BOOL *)failed {
     if (!_adbPath) { if (failed) *failed = YES; return @"ADB를 찾을 수 없습니다."; }
@@ -434,7 +492,17 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     if (failed) *failed = task.terminationStatus != 0;
     return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"";
 }
-- (BOOL)connectUSB {
+- (void)repairUSBForSerial:(NSString *)serial {
+    if (self.quitting) return;
+    BOOL failed = NO;
+    [self adb:@[@"-s",serial,@"get-state"] error:&failed];
+    if (failed) return;
+    for (int port=PDPort; port<=PDPort+2 && !self.quitting; port++) {
+        NSString *endpoint=[NSString stringWithFormat:@"tcp:%d",port];
+        [self adb:@[@"-s",serial,@"reverse",@"--no-rebind",endpoint,endpoint] error:nil];
+    }
+}
+- (BOOL)connectUSBWithForeground:(NSString *)foreground generation:(NSUInteger)generation {
     BOOL failed = NO; NSString *devices = [self adb:@[@"devices"] error:&failed];
     NSMutableArray *serials = [NSMutableArray new];
     for (NSString *line in [devices componentsSeparatedByString:@"\n"]) {
@@ -444,12 +512,7 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     if (failed || !serials.count) { [self updateStatus:@"USB 패드를 찾을 수 없습니다. 케이블과 USB 디버깅 허용을 확인하세요."]; return NO; }
     if (serials.count > 1 && ![serials containsObject:_serial ?: @""]) { [self updateStatus:@"안드로이드 기기가 여러 대입니다. 사용할 패드만 연결해 주세요."]; return NO; }
     NSString *selectedSerial = [serials containsObject:_serial ?: @""] ? _serial : serials[0];
-    BOOL changedDevice = _serial && ![_serial isEqualToString:selectedSerial];
     _serial = selectedSerial;
-    if (changedDevice && self.active) {
-        dispatch_async(dispatch_get_main_queue(), ^{ if (self.active && !self.quitting) { [self stop:nil]; [self start:nil]; } });
-        return NO;
-    }
     [self adb:@[@"-s",_serial,@"reverse",@"tcp:28765",@"tcp:28765"] error:&failed];
     if (failed) { [self updateStatus:@"USB 화면 전송 경로를 연결하지 못했습니다."]; return NO; }
     [self adb:@[@"-s",_serial,@"reverse",@"tcp:28766",@"tcp:28766"] error:&failed];
@@ -466,8 +529,10 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
         [self adb:@[@"-s",_serial,@"install",@"--no-incremental",@"-r",apk] error:&failed];
         if (failed) { [self updateStatus:@"패드 앱 설치 실패. 패드의 설치 허용 화면을 확인하세요."]; return NO; }
     }
+    if (self.quitting || generation != self.generation) return NO;
     [self adb:@[@"-s",_serial,@"shell",@"input",@"keyevent",@"KEYCODE_WAKEUP"] error:nil];
-    [self adb:@[@"-s",_serial,@"shell",@"am",@"start",@"--activity-single-top",@"-n",@"studio.prxs.paddisplay/.MainActivity",@"--es",@"token",_token] error:&failed];
+    if (self.quitting || generation != self.generation) return NO;
+    [self adb:@[@"-s",_serial,@"shell",@"am",@"start",@"--activity-single-top",@"-n",@"studio.prxs.paddisplay/.MainActivity",@"--es",@"token",_token,@"--es",@"foreground",foreground] error:&failed];
     if (failed) { [self updateStatus:@"패드 앱을 실행하지 못했습니다."]; return NO; }
     return YES;
 }
@@ -518,6 +583,10 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
 }
 - (void)start:(id)sender {
     if (_active || _starting) return;
+    if (_screenCaptureDenied) {
+        [self updateStatus:@"화면 기록 승인이 필요합니다. 켜져 있는데도 연결되지 않으면 SidePad 메뉴의 ‘화면 기록 승인 복구’를 누른 뒤 재실행해 주세요."];
+        return;
+    }
     if (_listener < 0 || _cursorListener < 0) { [self updateStatus:@"USB 수신 포트를 열 수 없습니다. 다른 SidePad 실행을 종료해 주세요."]; return; }
     _starting = YES; _startButton.enabled = NO;
     // ScreenCaptureKit is the authority for the capture we actually perform.
@@ -525,22 +594,29 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     // do not repeatedly request permission or force Settings open from it.
     [self updateStatus:@"USB-C 패드를 연결하고 있습니다…"];
     _stopButton.enabled = YES;
+    NSString *foreground = [_foregroundSession prepareLaunch];
     NSUInteger connectionGeneration = ++_generation;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0), ^{
-        BOOL connected = [self connectUSB];
+        BOOL connected = [self connectUSBWithForeground:foreground generation:connectionGeneration];
         dispatch_async(dispatch_get_main_queue(), ^{
             if (connectionGeneration != self.generation) return;
-            if (!connected || self.quitting) { self.starting = NO; self.startButton.enabled = YES; return; }
-            [self beginCapture];
+            if (!connected || self.quitting) { self.starting = NO; self.startButton.enabled = YES; self.stopButton.enabled = NO; return; }
+            // Capture starts only after the foreground receiver authenticates.
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10*NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                if (connectionGeneration != self.generation || !self.starting) return;
+                [self stop:nil]; [self updateStatus:@"패드 앱 연결 대기 시간이 지났습니다. 패드에서 SidePad를 다시 열어 주세요."];
+            });
         });
     });
 }
 - (void)beginCapture {
+    _preparingCapture = YES;
+    [self rememberOptions:nil];
     _layoutReady = NO; _layoutDevice = [_serial copy];
     NSArray *sizes = @[@[@1920,@1200],@[@1472,@920],@[@2944,@1840]];
     NSArray *size = sizes[_resolution.indexOfSelectedItem]; int width = [size[0] intValue], height = [size[1] intValue];
     int fps = _rate.indexOfSelectedItem == 0 ? 60 : 30;
-    if (_mode.indexOfSelectedItem == 0) { if (![self createDisplayWidth:width height:height]) { _starting = NO; _startButton.enabled = YES; return; } }
+    if (_mode.indexOfSelectedItem == 0) { if (![self createDisplayWidth:width height:height]) { NSString *message=_status.stringValue; [self stop:nil]; [self updateStatus:message]; return; } }
     else {
         _targetDisplay = CGMainDisplayID();
         CGRect bounds = CGDisplayBounds(_targetDisplay);
@@ -556,9 +632,10 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
                 SCDisplay *selected = nil;
                 for (SCDisplay *display in content.displays) if (display.displayID == self.targetDisplay) selected = display;
                 if (error || !selected) {
-                    [self stop:nil];
                     BOOL declined = [error.domain isEqualToString:SCStreamErrorDomain] && error.code == SCStreamErrorUserDeclined;
-                    [self updateStatus:declined ? @"화면 기록이 허용되지 않았습니다. ‘화면 권한’에서 SidePad를 허용한 뒤 앱을 다시 여세요." : (error ? [@"화면 캡처 실패: " stringByAppendingString:error.localizedDescription] : @"확장 화면을 찾을 수 없습니다. 다시 연결해 주세요.")];
+                    self.screenCaptureDenied=declined;
+                    [self stop:nil];
+                    [self updateStatus:declined ? @"화면 기록 승인이 필요합니다. 이미 켜져 있다면 SidePad 메뉴의 ‘화면 기록 승인 복구’를 실행한 뒤 앱을 다시 여세요." : (error ? [@"화면 캡처 실패: " stringByAppendingString:error.localizedDescription] : @"확장 화면을 찾을 수 없습니다. 다시 연결해 주세요.")];
                     return;
                 }
                 PDCapture *capture = [PDCapture new]; capture.app = self; capture.width = width; capture.height = height; capture.fps = fps;
@@ -583,8 +660,12 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
                 [capture.stream startCaptureWithCompletionHandler:^(NSError *startError) {
                     dispatch_async(dispatch_get_main_queue(), ^{
                         if (generation != self.generation) return;
-                        if (startError) { [self stop:nil]; [self updateStatus:[@"화면 전송 시작 실패: " stringByAppendingString:startError.localizedDescription]]; return; }
+                        if (startError) {
+                            self.screenCaptureDenied=[startError.domain isEqualToString:SCStreamErrorDomain] && startError.code==SCStreamErrorUserDeclined;
+                            [self stop:nil]; [self updateStatus:[@"화면 전송 시작 실패: " stringByAppendingString:startError.localizedDescription]]; return;
+                        }
                         self.active = YES; self.starting = NO; self.stopButton.enabled = YES; self.layoutReady = YES;
+                        self.preparingCapture = NO;
                         self.mode.enabled = NO; self.resolution.enabled = NO; self.rate.enabled = NO;
                         [self updateStatus:@"USB 연결됨 · 첫 화면 전송 대기 중"];
                         PDLog(@"ScreenCaptureKit started");
@@ -595,12 +676,22 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     });
 }
 - (void)stop:(id)sender {
+    [_foregroundSession blockCurrent];
+    [self stopCapture];
+}
+- (void)pauseForPeer:(PDPeer *)peer {
+    if (!peer || _peer != peer || _quitting) return;
+    [self stopCapture];
+    PDLog(@"Tablet receiver closed; capture paused without relaunching Android");
+    [self updateStatus:@"패드 연결 중지 · 패드에서 SidePad를 다시 열면 연결됩니다."];
+}
+- (void)stopCapture {
     if (_layoutReady && _virtualDisplay) [_displayLayout saveForDevice:_layoutDevice display:_targetDisplay];
     _layoutReady = NO;
     [_macAudioOutput restore];
     [self releasePen];
     [self releaseTouch];
-    ++_generation; _starting = NO; _active = NO;
+    ++_generation; _starting = NO; _active = NO; _preparingCapture = NO;
     [_capture stop]; _capture = nil;
     [_peer close]; _peer = nil;
     [_cursorPeer close]; _cursorPeer = nil;
@@ -623,40 +714,74 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
             setsockopt(client,IPPROTO_TCP,TCP_NODELAY,&yes,sizeof(yes));
             struct timeval timeout = {5,0}; setsockopt(client,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
             timeout.tv_sec=channel==2?0:2;timeout.tv_usec=channel==2?100000:0;setsockopt(client,SOL_SOCKET,SO_SNDTIMEO,&timeout,sizeof(timeout));
-            NSMutableData *hello = [NSMutableData new]; uint8_t byte;
+            NSMutableData *hello = [NSMutableData new]; uint8_t byte=0;
             while (hello.length < 128 && recv(client,&byte,1,0) == 1 && byte != '\n') [hello appendBytes:&byte length:1];
             NSString *line = [[NSString alloc] initWithData:hello encoding:NSUTF8StringEncoding];
-            NSString *prefix = channel==1?@"PADCURSOR/1 ":(channel==2?@"PADAUDIO/1 ":@"PADDISPLAY/1 ");
-            if ((!self.active && !self.starting) || ![line isEqualToString:[prefix stringByAppendingString:self.token]]) { close(client); continue; }
+            NSString *foreground=channel==0 ? PDForegroundID(line,self.token) : nil;
+            NSString *prefix=channel==1 ? @"PADCURSOR/1 " : @"PADAUDIO/1 ";
+            BOOL authenticated=channel==0 ? foreground!=nil : [line isEqualToString:[prefix stringByAppendingString:self.token]];
+            if (byte!='\n' || !authenticated) { close(client); continue; }
             PDPeer *peer = [PDPeer new]; peer.fd = client;
+            // A duplicate descriptor keeps the EOF reader safe when a sender closes the peer.
+            int readFD=channel==2 ? -1 : dup(client);
+            if (channel!=2 && readFD<0) { [peer close]; continue; }
+            if (channel==0) { timeout.tv_sec=0; timeout.tv_usec=0; setsockopt(client,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout)); }
+            __block BOOL accepted=NO;
+            dispatch_sync(dispatch_get_main_queue(), ^{
+                if (self.quitting) return;
+                if (channel==0) {
+                    if (self.screenCaptureDenied) return;
+                    if (![self.foregroundSession acceptID:foreground]) return;
+                    [self.peer close]; self.peer=peer;
+                    if (!self.active && !self.preparingCapture) {
+                        self.starting=YES; self.startButton.enabled=NO; self.stopButton.enabled=YES;
+                        [self beginCapture];
+                    }
+                } else {
+                    if (!self.active && !self.starting) return;
+                    if (channel==1) { [self.cursorPeer close]; self.cursorPeer=peer; }
+                    else { [self.audioPeer close]; self.audioPeer=peer; }
+                }
+                accepted=YES;
+            });
+            if (!accepted) { [peer close]; if (readFD>=0) close(readFD); continue; }
             if(channel==2){
                 uint8_t enabled=self.audioEnabled;
                 if(![peer packet:10 data:[NSData dataWithBytes:&enabled length:1]])continue;
-                [self.audioPeer close];self.audioPeer=peer;PDLog(@"Authenticated dedicated USB audio connected");
+                PDLog(@"Authenticated dedicated USB audio connected");
             }
-            else if (channel==0) { [self.peer close]; self.peer = peer; PDLog(@"Authenticated USB video connected"); }
+            else if (channel==0) {
+                PDLog(@"Authenticated foreground USB video connected");
+                // Android closes this socket in onPause. No timer launches it again.
+                // A foreground receiver retries after a cable/decoder interruption.
+                PDRead(readFD,&byte,1); close(readFD);
+                dispatch_async(dispatch_get_main_queue(), ^{ [self pauseForPeer:peer]; });
+            }
             else {
-                [self.cursorPeer close]; self.cursorPeer = peer; PDLog(@"Authenticated dedicated USB cursor connected");
+                PDLog(@"Authenticated dedicated USB cursor connected");
                 uint8_t header[5]; double total=0; NSUInteger count=0;
-                while (!self.quitting && PDRead(client,header,5)) {
+                while (!self.quitting && PDRead(readFD,header,5)) {
                     uint32_t length; memcpy(&length,header+1,4); length=ntohl(length);
                     if(header[0]==7 && length==26) {
-                        uint8_t data[26];if(!PDRead(client,data,26))break;
+                        uint8_t data[26];if(!PDRead(readFD,data,26))break;
                         [self handlePen:[NSData dataWithBytes:data length:26]];continue;
                     }
                     if(header[0]==8 && length==17) {
-                        uint8_t data[17];if(!PDRead(client,data,17))break;
+                        uint8_t data[17];if(!PDRead(readFD,data,17))break;
                         [self handleTouch:[NSData dataWithBytes:data length:17]];continue;
                     }
                     if (header[0]!=5 || length!=17) break;
-                    uint8_t data[17]; if (!PDRead(client,data,17)) break;
+                    uint8_t data[17]; if (!PDRead(readFD,data,17)) break;
                     uint64_t sent; memcpy(&sent,data+9,8); sent=CFSwapInt64BigToHost(sent);
                     uint64_t now=PDClockNS(); if (sent>now) continue;
                     double rtt=(now-sent)/1000000.0; if (rtt>1000) continue;
                     total+=rtt; count++;
                     if (count==60) { self.cursorRTT=total/count; PDLog([NSString stringWithFormat:@"Cursor USB round-trip average %.2f ms",self.cursorRTT]); total=0;count=0; }
                 }
-                [peer close]; if (self.cursorPeer==peer) { self.cursorPeer=nil;[self releasePen];[self releaseTouch]; }
+                close(readFD); [peer close];
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (self.cursorPeer==peer) { self.cursorPeer=nil;[self releasePen];[self releaseTouch]; }
+                });
             }
         }
     });

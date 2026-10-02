@@ -6,7 +6,7 @@
 
 A native macOS + Android experiment for a wired second display, with a separate low-latency cursor channel, pen input and finger touch.
 
-현재 버전: **1.8** · [변경 내역](CHANGELOG.md)
+현재 버전: **1.9** · [변경 내역](CHANGELOG.md)
 
 **[배포 페이지](https://github.com/studioprxs-cmd/sidepad/releases/latest)** · [Mac 앱 다운로드](https://github.com/studioprxs-cmd/sidepad/releases/latest/download/SidePad-macOS.zip) · [Android APK 다운로드](https://github.com/studioprxs-cmd/sidepad/releases/latest/download/SidePad.apk)
 
@@ -38,6 +38,24 @@ A native macOS + Android experiment for a wired second display, with a separate 
 6. 기본값은 확장 모니터, 원본 Retina 해상도, 영상 최대 60fps입니다. 처음 연결한 구성에서는 주 화면 오른쪽에 생성됩니다. **디스플레이 배치**에서 위치를 조정하면 저장되고 다음 연결에 복원됩니다.
 
 해상도나 프레임 속도를 바꾸려면 **중지 → 옵션 선택 → 연결 시작** 순서로 조작합니다. 창을 닫아도 메뉴 막대의 `▣ SidePad`에서 전송이 유지됩니다. **종료**하면 가상 모니터와 이 앱의 USB 포트 연결이 해제됩니다.
+
+### 패드 앱을 나갔다가 다시 연결하기
+
+패드에서 홈 화면이나 다른 앱으로 이동하면 화면·소리·입력 전송과 가상 모니터를 정리합니다. Mac이 패드 앱을 다시 실행하거나 화면을 켜지 않습니다. Mac 앱과 USB 연결을 유지한 상태에서 **패드의 SidePad를 다시 열면** 기존 연결 정보, 화면 모드, 해상도, 프레임 속도, 소리 출력과 저장한 모니터 배열로 다시 연결됩니다. Mac의 **연결 시작**으로도 다시 열 수 있습니다.
+
+Mac에서 **중지**를 누른 경우에는 같은 연결의 재시도가 중지를 취소하지 않습니다. 패드에서 앱을 나갔다가 다시 열거나 Mac의 연결 시작을 누르세요. USB 케이블 복구는 연결 경로만 복원하며 앱을 강제로 실행하지 않습니다. 다른 패드로 바꾸면 Mac에서 연결 시작을 눌러 새 기기를 연결하세요.
+
+### 앱 업데이트
+
+Mac 창의 **업데이트 확인** 버튼 또는 **SidePad → 업데이트 확인…** 메뉴를 누르세요. 새 버전이 있으면 **업데이트 설치**로 다운로드·설치·재실행합니다. 기존 설정을 유지하고, 연결된 패드 앱도 함께 설치·업데이트합니다. Mac 앱과 Android 앱은 같은 버전을 사용하세요.
+
+업데이트 확인에는 인터넷이 필요합니다. 공식 GitHub의 최신 정식 배포만 확인하며 파일 크기, SHA-256, 앱 식별자·버전·서명을 검사한 뒤 교체합니다. 확인·다운로드·검증 실패 시 기존 앱을 유지하며, 교체 실패 시 이전 앱을 복원합니다. 앱과 앱이 있는 폴더에 쓰기 권한이 필요합니다. 자동 확인이나 정기 다운로드는 하지 않습니다.
+
+### 화면 기록 승인이 켜져 있는데 연결되지 않을 때
+
+이전 개발 버전의 코드 해시에 묶인 승인은 새 버전에 적용되지 않을 수 있습니다. 앱 메뉴의 **화면 기록 승인 복구… → 승인 다시 등록**을 누르면 **SidePad의 화면 기록 승인만** 초기화하고 새 승인을 요청합니다. 시스템 설정에서 SidePad를 허용한 다음 앱을 종료했다가 다시 여세요. 펜·터치의 손쉬운 사용 승인은 별도로 켜야 합니다.
+
+화면 기록이 거부된 뒤에는 연결 재시도가 시스템 승인창을 반복해서 띄우지 않습니다. 이 복구 작업은 사용자가 메뉴에서 직접 선택할 때만 실행합니다.
 
 ### 처음 실행이 차단될 때
 
@@ -110,7 +128,7 @@ bash build.sh
 
 기존 묶음 도구를 재사용하려면 `PAD_DISPLAY_TOOLCHAIN=/path/to/toolchain`을 지정할 수 있습니다. 이 옵션은 `jdk/jdk-17.0.20.1+1/Contents/Home`, `build-tools/android-15`, `platform/android-35/android.jar` 구조를 사용합니다. `JAVA_HOME`을 따로 지정하면 그 JDK를 우선합니다.
 
-Android 서명 키는 최초 빌드 때 `private/`에 생성됩니다. 이후 기존 APK를 업데이트하려면 같은 키를 보관해야 합니다. 키는 Git 추적 대상에서 제외되어 있습니다. macOS 로컬 앱은 동일 식별자의 designated requirement를 사용해 업데이트 때 기존 권한을 유지하도록 구성했습니다.
+Android 서명 키는 최초 빌드 때 `private/`에 생성됩니다. 이후 기존 APK를 업데이트하려면 같은 키를 보관해야 합니다. 키는 Git 추적 대상에서 제외되어 있습니다. macOS 로컬 앱은 동일 식별자의 designated requirement를 사용합니다. 이전 코드 해시에 묶인 승인은 새로 등록해야 하며, Apple 공증 또는 Developer ID 서명을 제공하는 것은 아닙니다.
 
 ## 검증
 
@@ -119,6 +137,8 @@ bash tests/run.sh
 ```
 
 제스처 상태 전환, 터치·펜 패킷 파싱, 필압 필드, 버튼 해제, 픽셀 스크롤과 잘못된 입력 거부를 검사합니다. 오디오 테스트는 평면·인터리브 float PCM, 채널 순서, 리틀 엔디언 변환, 클리핑, 비정상 값과 잘못된 버퍼 거부를 확인합니다. 이 테스트는 Mac에 실제 입력을 게시하거나 소리를 재생하지 않습니다.
+
+연결 상태 테스트는 앱 재진입과 USB 재시도, 수동 중지, 이전 연결의 늦은 재시도, 인증 실패를 검사합니다. 업데이트 테스트는 버전 비교, 공식 배포 주소, 미완성·시험 배포 거부, 파일 크기·SHA-256 불일치를 확인합니다.
 
 `mac/check-display.m`은 패드용 애니메이션 측정 화면, `mac/check-touch.m`은 터치·스크롤 확인 창, `mac/check-pen.m`은 필압 확인 창입니다. 실제 연결 기기에서 화면 전송과 입력 결과를 별도로 검증해야 합니다.
 
