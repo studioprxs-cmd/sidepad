@@ -10,6 +10,19 @@ A native macOS + Android experiment for a wired second display, with a separate 
 
 **[배포 페이지](https://github.com/studioprxs-cmd/sidepad/releases/latest)** · [Mac 앱 다운로드](https://github.com/studioprxs-cmd/sidepad/releases/latest/download/SidePad-macOS.zip) · [Android APK 다운로드](https://github.com/studioprxs-cmd/sidepad/releases/latest/download/SidePad.apk)
 
+## 버그 신고 및 문의
+
+SidePad 사용 중 발생한 오류, 연결 문제, 기능 제안 및 기타 문의는 **[studio.prxs@gmail.com](mailto:studio.prxs@gmail.com)**으로 보내 주세요.
+
+버그를 신고하실 때 아래 정보를 함께 보내 주시면 문제를 확인하는 데 도움이 됩니다.
+
+- Mac·패드의 SidePad 앱 버전
+- Mac과 패드 기종, macOS·Android 버전
+- 발생한 증상과 문제가 발생하기까지의 순서
+- 오류 메시지 또는 화면 캡처(선택)
+
+메일 제목 예시: `[SidePad] 패드 연결 오류 문의`
+
 ## 기능
 
 | 항목 | 지원 범위 |
