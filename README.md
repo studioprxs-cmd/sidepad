@@ -6,7 +6,7 @@
 
 A native macOS + Android experiment for a wired second display, with a separate low-latency cursor channel, pen input and finger touch.
 
-현재 버전: **1.9** · [변경 내역](CHANGELOG.md)
+현재 버전: **1.10** · [변경 내역](CHANGELOG.md)
 
 **[배포 페이지](https://github.com/studioprxs-cmd/sidepad/releases/latest)** · [Mac 앱 다운로드](https://github.com/studioprxs-cmd/sidepad/releases/latest/download/SidePad-macOS.zip) · [Android APK 다운로드](https://github.com/studioprxs-cmd/sidepad/releases/latest/download/SidePad.apk)
 
@@ -22,6 +22,8 @@ SidePad 사용 중 발생한 오류, 연결 문제, 기능 제안 및 기타 문
 - 오류 메시지 또는 화면 캡처(선택)
 
 메일 제목 예시: `[SidePad] 패드 연결 오류 문의`
+
+Mac 앱 하단의 **버그 신고 · 문의** 또는 SidePad 메뉴에서 메일 쓰기와 주소 복사를 이용할 수 있습니다.
 
 ## 기능
 

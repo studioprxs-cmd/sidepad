@@ -11,6 +11,7 @@
 #import "DisplayLayout.h"
 #import "ForegroundSession.h"
 #import "Updater.h"
+#import "Dashboard.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -92,6 +93,9 @@ static void PDLog(NSString *message) { NSLog(@"PadDisplay: %@", message); }
 @interface PDApp : NSObject <NSApplicationDelegate, NSWindowDelegate>
 @property(strong) NSWindow *window;
 @property(strong) NSTextField *status, *detail;
+@property(strong) NSTextField *connectionTitle, *connectionBadge, *settingsHint;
+@property(strong) PDConnectionArtwork *connectionArtwork;
+@property(strong) NSButton *permissionRepairButton;
 @property(strong) NSTextField *penStatus;
 @property BOOL penDown,penRight,penProximity;
 @property CGPoint penPoint;
@@ -269,13 +273,107 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
 @end
 
 @implementation PDApp
-- (NSTextField *)label:(NSString *)text frame:(NSRect)frame size:(CGFloat)size {
-    NSTextField *label = [NSTextField wrappingLabelWithString:text]; label.frame = frame;
-    label.font = [NSFont systemFontOfSize:size]; [_window.contentView addSubview:label]; return label;
+- (NSStackView *)field:(NSString *)title control:(NSPopUpButton *)control {
+    NSTextField *label=PDText(title,12,NSFontWeightMedium); label.textColor=NSColor.secondaryLabelColor;
+    control.translatesAutoresizingMaskIntoConstraints=NO; control.font=[NSFont systemFontOfSize:13];
+    NSStackView *field=PDStack(@[label,control],NSUserInterfaceLayoutOrientationVertical,6);
+    [control.leadingAnchor constraintEqualToAnchor:field.leadingAnchor].active=YES;
+    [control.trailingAnchor constraintEqualToAnchor:field.trailingAnchor].active=YES;
+    [control.heightAnchor constraintEqualToConstant:30].active=YES;
+    return field;
 }
-- (NSButton *)button:(NSString *)title frame:(NSRect)frame action:(SEL)action {
-    NSButton *button = [NSButton buttonWithTitle:title target:self action:action]; button.frame = frame;
-    [_window.contentView addSubview:button]; return button;
+- (void)buildDashboardWithAudioChoice:(NSInteger)audioChoice {
+    _window=[[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,760,660)
+        styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskMiniaturizable|NSWindowStyleMaskResizable
+        backing:NSBackingStoreBuffered defer:NO];
+    _window.title=@"SidePad"; _window.delegate=self;
+    _window.titlebarAppearsTransparent=YES; _window.titleVisibility=NSWindowTitleHidden;
+    _window.backgroundColor=NSColor.windowBackgroundColor;
+    _window.minSize=NSMakeSize(720,690); _window.maxSize=NSMakeSize(1100,950);
+    [_window center];
+
+    NSImageView *icon=[NSImageView imageViewWithImage:NSApp.applicationIconImage];
+    icon.translatesAutoresizingMaskIntoConstraints=NO; icon.imageScaling=NSImageScaleProportionallyUpOrDown;
+    [icon.widthAnchor constraintEqualToConstant:48].active=YES; [icon.heightAnchor constraintEqualToConstant:48].active=YES;
+    NSString *version=[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
+    NSTextField *versionLabel=PDText(version,11,NSFontWeightMedium); versionLabel.textColor=NSColor.secondaryLabelColor;
+    NSStackView *brand=PDStack(@[PDText(@"SidePad",25,NSFontWeightSemibold),versionLabel],NSUserInterfaceLayoutOrientationHorizontal,9);
+    NSTextField *subtitle=PDText(@"USB-C로 이어지는 두 번째 화면",12,NSFontWeightRegular); subtitle.textColor=NSColor.secondaryLabelColor;
+    NSStackView *titles=PDStack(@[brand,subtitle],NSUserInterfaceLayoutOrientationVertical,3);
+    _updateButton=PDAction(@"업데이트 확인",@"arrow.triangle.2.circlepath",self,@selector(checkUpdates:));
+    NSStackView *header=PDStack(@[icon,titles,PDSpacer(),_updateButton],NSUserInterfaceLayoutOrientationHorizontal,12);
+
+    PDCard *connection=[PDCard new]; connection.translatesAutoresizingMaskIntoConstraints=NO; connection.tinted=YES;
+    _connectionArtwork=[PDConnectionArtwork new]; _connectionArtwork.translatesAutoresizingMaskIntoConstraints=NO;
+    [_connectionArtwork.widthAnchor constraintEqualToConstant:218].active=YES;
+    [_connectionArtwork.heightAnchor constraintEqualToConstant:164].active=YES;
+    _connectionBadge=PDText(@"USB-C · 연결 준비",11,NSFontWeightSemibold); _connectionBadge.textColor=NSColor.controlAccentColor;
+    _connectionTitle=PDText(@"패드를 연결하세요",24,NSFontWeightSemibold);
+    _status=PDText(@"패드를 USB-C로 연결하고 연결 시작을 눌러 주세요.",12,NSFontWeightRegular);
+    _status.textColor=NSColor.secondaryLabelColor;
+    [_status.heightAnchor constraintEqualToConstant:46].active=YES;
+    _detail=PDText(@"마지막 해상도와 모니터 배열을 기억합니다.",11,NSFontWeightRegular); _detail.textColor=NSColor.secondaryLabelColor;
+    [_detail.heightAnchor constraintEqualToConstant:29].active=YES;
+    _startButton=PDAction(@"연결 시작",@"play.fill",self,@selector(start:));
+    _startButton.bezelColor=NSColor.controlAccentColor; _startButton.keyEquivalent=@"\r";
+    [_startButton.widthAnchor constraintEqualToConstant:130].active=YES;
+    _stopButton=PDAction(@"중지",@"stop.fill",self,@selector(stop:)); _stopButton.enabled=NO;
+    NSButton *arrange=PDAction(@"배치 조정",@"rectangle.3.group",self,@selector(displays:));
+    arrange.toolTip=@"시스템 설정에서 모니터 배열을 조정합니다. 배치는 다음 연결에 복원됩니다.";
+    NSStackView *actions=PDStack(@[_startButton,_stopButton,PDSpacer(),arrange],NSUserInterfaceLayoutOrientationHorizontal,8);
+    NSStackView *connectionText=PDStack(@[_connectionBadge,_connectionTitle,_status,_detail,actions],NSUserInterfaceLayoutOrientationVertical,6);
+    for (NSView *view in @[_status,_detail,actions]) [view.widthAnchor constraintEqualToAnchor:connectionText.widthAnchor].active=YES;
+    NSStackView *connectionRow=PDStack(@[_connectionArtwork,connectionText],NSUserInterfaceLayoutOrientationHorizontal,22);
+    PDPin(connection,connectionRow,18);
+
+    _mode=[[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_mode addItemsWithTitles:@[@"확장 모니터 · 서로 다른 화면",@"화면 복제 · Mac의 주 화면"]];
+    _resolution=[[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_resolution addItemsWithTitles:@[@"1920 × 1200 · 균형",@"1472 × 920 · 가볍게",@"2944 × 1840 · Retina"]]; [_resolution selectItemAtIndex:2];
+    _resolution.toolTip=@"Retina는 2944 × 1840 실제 픽셀에 1472 × 920 크기의 작업 공간을 표시합니다.";
+    _rate=[[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO]; [_rate addItemsWithTitles:@[@"60 fps · 부드럽게",@"30 fps · 가볍게"]];
+    NSDictionary *options=@{@"PadDisplayMode":_mode,@"PadDisplayResolution":_resolution,@"PadDisplayRate":_rate};
+    for (NSString *key in options) {
+        NSPopUpButton *button=options[key]; id saved=[NSUserDefaults.standardUserDefaults objectForKey:key];
+        if ([saved isKindOfClass:NSNumber.class] && [saved integerValue]>=0 && [saved integerValue]<button.numberOfItems) [button selectItemAtIndex:[saved integerValue]];
+        button.target=self; button.action=@selector(rememberOptions:);
+    }
+    _audioDestination=[[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_audioDestination addItemsWithTitles:@[@"Mac + 패드 · 둘 다",@"패드만",@"Mac만"]]; [_audioDestination selectItemAtIndex:audioChoice];
+    _audioDestination.target=self; _audioDestination.action=@selector(toggleAudio:);
+    NSStackView *firstRow=PDStack(@[[self field:@"화면 모드" control:_mode],[self field:@"해상도" control:_resolution]],NSUserInterfaceLayoutOrientationHorizontal,20);
+    NSStackView *secondRow=PDStack(@[[self field:@"영상 프레임" control:_rate],[self field:@"소리 출력" control:_audioDestination]],NSUserInterfaceLayoutOrientationHorizontal,20);
+    firstRow.distribution=NSStackViewDistributionFillEqually; secondRow.distribution=NSStackViewDistributionFillEqually;
+    _settingsHint=PDText(@"원하는 화면 환경으로 설정하세요.",11,NSFontWeightRegular); _settingsHint.textColor=NSColor.secondaryLabelColor;
+    NSStackView *settingsHeader=PDStack(@[PDText(@"화면과 소리",14,NSFontWeightSemibold),PDSpacer(),_settingsHint],NSUserInterfaceLayoutOrientationHorizontal,12);
+    NSStackView *settings=PDStack(@[settingsHeader,firstRow,secondRow],NSUserInterfaceLayoutOrientationVertical,12);
+    for (NSView *row in settings.arrangedSubviews) [row.widthAnchor constraintEqualToAnchor:settings.widthAnchor].active=YES;
+    PDCard *settingsCard=[PDCard new]; settingsCard.translatesAutoresizingMaskIntoConstraints=NO; PDPin(settingsCard,settings,18);
+
+    _penStatus=PDText(@"펜·터치 권한을 확인하세요.",11,NSFontWeightRegular); _penStatus.textColor=NSColor.secondaryLabelColor;
+    NSStackView *permissionText=PDStack(@[PDText(@"권한",14,NSFontWeightSemibold),_penStatus],NSUserInterfaceLayoutOrientationVertical,5);
+    NSButton *screen=PDAction(@"화면 권한",@"record.circle",self,@selector(permission:));
+    NSButton *input=PDAction(@"펜·터치 권한",@"hand.point.up.left",self,@selector(inputPermission:));
+    _permissionRepairButton=PDAction(@"승인 복구",@"arrow.clockwise",self,@selector(repairScreenPermission:)); _permissionRepairButton.hidden=YES;
+    NSStackView *permissions=PDStack(@[permissionText,PDSpacer(),screen,input,_permissionRepairButton],NSUserInterfaceLayoutOrientationHorizontal,10);
+    PDCard *permissionCard=[PDCard new]; permissionCard.translatesAutoresizingMaskIntoConstraints=NO; PDPin(permissionCard,permissions,16);
+    NSButton *support=PDAction(@"버그 신고 · 문의",@"envelope",self,@selector(support:)); support.bordered=NO;
+    support.toolTip=@"studio.prxs@gmail.com";
+    NSButton *guide=PDAction(@"설치·사용 안내",@"questionmark.circle",self,@selector(setupGuide:)); guide.bordered=NO;
+    NSStackView *footer=PDStack(@[support,PDSpacer(),guide],NSUserInterfaceLayoutOrientationHorizontal,12);
+    NSStackView *root=PDStack(@[header,connection,settingsCard,permissionCard,footer],NSUserInterfaceLayoutOrientationVertical,14);
+    for (NSView *view in root.arrangedSubviews) [view.widthAnchor constraintEqualToAnchor:root.widthAnchor].active=YES;
+    PDPin(_window.contentView,root,20);
+}
+- (void)updateDashboard {
+    BOOL connected=_active && _peer && _peer.configured && _capture.encodedFrames>0;
+    NSInteger state=_screenCaptureDenied ? 3 : (connected ? 2 : (_starting ? 1 : 0));
+    _connectionArtwork.connectionState=state;
+    _connectionTitle.stringValue=state==3 ? @"화면 권한을 확인하세요" : (connected ? @"패드와 연결됨" : (_starting ? @"패드에 연결하는 중" : (_foregroundSession.paired ? @"패드 연결 대기 중" : @"패드를 연결하세요")));
+    _connectionBadge.stringValue=state==3 ? @"화면 기록 승인 필요" : (connected ? @"USB-C · 연결됨" : (_starting ? @"USB-C · 연결 중" : @"USB-C · 연결 대기"));
+    _connectionBadge.textColor=state==3 ? NSColor.systemOrangeColor : (connected ? NSColor.systemGreenColor : NSColor.controlAccentColor);
+    _permissionRepairButton.hidden=!_screenCaptureDenied;
+    _settingsHint.stringValue=(_active || _starting) ? @"화면 설정은 연결을 중지한 뒤 변경하세요." : @"원하는 화면 환경으로 설정하세요.";
 }
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     _listener = -1; _cursorListener = -1; _audioListener=-1;
@@ -291,46 +389,7 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     for (NSString *path in @[@"/opt/homebrew/bin/adb", @"/usr/local/bin/adb", [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Android/sdk/platform-tools/adb"]]) {
         if ([[NSFileManager defaultManager] isExecutableFileAtPath:path]) { _adbPath = path; break; }
     }
-    _window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,530,544) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskMiniaturizable backing:NSBackingStoreBuffered defer:NO];
-    _window.title = @"SidePad · USB-C 모니터"; _window.delegate = self; [_window center];
-    NSTextField *title = [self label:@"패드를 두 번째 모니터로" frame:NSMakeRect(28,344,332,38) size:25]; title.font = [NSFont boldSystemFontOfSize:25];
-    NSButton *securityButton = [self button:@"실행 승인 설정" frame:NSMakeRect(370,350,132,28) action:@selector(securitySettings:)];
-    securityButton.toolTip = @"시스템 설정의 개인정보 보호 및 보안을 엽니다.";
-    [self label:@"USB-C로 연결한 안드로이드 패드에 맥 화면을 표시합니다." frame:NSMakeRect(28,308,474,28) size:13];
-    [self label:@"화면 모드" frame:NSMakeRect(28,260,100,25) size:13];
-    _mode = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(139,258,363,30) pullsDown:NO];
-    [_mode addItemsWithTitles:@[@"확장 모니터 · 서로 다른 화면", @"화면 복제 · 맥의 주 화면"]]; [_window.contentView addSubview:_mode];
-    [self label:@"해상도" frame:NSMakeRect(28,220,100,25) size:13];
-    _resolution = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(139,218,363,30) pullsDown:NO];
-    [_resolution addItemsWithTitles:@[@"1920 × 1200 · 균형", @"1472 × 920 · 가볍게", @"2944 × 1840 · 원본 + 글자 크게 (Retina)"]];
-    [_resolution selectItemAtIndex:2]; [_window.contentView addSubview:_resolution];
-    [self label:@"프레임 속도" frame:NSMakeRect(28,180,100,25) size:13];
-    _rate = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(139,178,363,30) pullsDown:NO]; [_rate addItemsWithTitles:@[@"60 fps", @"30 fps"]]; [_window.contentView addSubview:_rate];
-    NSDictionary *options=@{@"PadDisplayMode":_mode,@"PadDisplayResolution":_resolution,@"PadDisplayRate":_rate};
-    for (NSString *key in options) {
-        NSPopUpButton *button=options[key]; id saved=[NSUserDefaults.standardUserDefaults objectForKey:key];
-        if ([saved isKindOfClass:NSNumber.class] && [saved integerValue]>=0 && [saved integerValue]<button.numberOfItems) [button selectItemAtIndex:[saved integerValue]];
-        button.target=self; button.action=@selector(rememberOptions:);
-    }
-    _status = [self label:@"연결을 준비하고 있습니다." frame:NSMakeRect(28,112,474,50) size:14];
-    _detail = [self label:@"패드는 맥 화면 오른쪽에 배치됩니다. 마우스와 창을 오른쪽으로 옮기세요." frame:NSMakeRect(28,75,474,32) size:11]; _detail.textColor = NSColor.secondaryLabelColor;
-    [self button:@"화면 권한" frame:NSMakeRect(28,25,102,34) action:@selector(permission:)];
-    [self button:@"디스플레이 배치" frame:NSMakeRect(134,25,128,34) action:@selector(displays:)];
-    _stopButton = [self button:@"중지" frame:NSMakeRect(283,25,82,34) action:@selector(stop:)]; _stopButton.enabled = NO;
-    _startButton = [self button:@"연결 시작" frame:NSMakeRect(375,25,127,34) action:@selector(start:)]; _startButton.keyEquivalent = @"\r";
-    for(NSView *view in _window.contentView.subviews){NSRect frame=view.frame;frame.origin.y+=50;view.frame=frame;}
-    [self button:@"펜·터치 권한" frame:NSMakeRect(28,25,125,34) action:@selector(inputPermission:)];
-    _penStatus=[self label:@"펜·터치 · 손쉬운 사용 권한 필요" frame:NSMakeRect(166,29,336,26) size:11];
-    for(NSView *view in _window.contentView.subviews){NSRect frame=view.frame;frame.origin.y+=40;view.frame=frame;}
-    [self label:@"소리 출력" frame:NSMakeRect(28,21,100,25) size:13];
-    _audioDestination=[[NSPopUpButton alloc]initWithFrame:NSMakeRect(139,18,363,30) pullsDown:NO];
-    [_audioDestination addItemsWithTitles:@[@"Mac + 패드 · 둘 다",@"패드만",@"Mac만"]];
-    [_audioDestination selectItemAtIndex:audioChoice];_audioDestination.target=self;_audioDestination.action=@selector(toggleAudio:);
-    [_window.contentView addSubview:_audioDestination];
-    NSString *version=[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
-    NSTextField *versionLabel=[self label:[@"SidePad " stringByAppendingString:version] frame:NSMakeRect(28,499,250,23) size:12];
-    versionLabel.textColor=NSColor.secondaryLabelColor;
-    _updateButton=[self button:@"업데이트 확인" frame:NSMakeRect(350,494,152,30) action:@selector(checkUpdates:)];
+    [self buildDashboardWithAudioChoice:audioChoice];
     _updater=[PDUpdater new];
     __weak PDApp *weakSelf=self;
     _updater.stateChanged=^(NSString *title) { weakSelf.updateButton.title=title; weakSelf.updateButton.enabled=!weakSelf.updater.busy; };
@@ -360,7 +419,7 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
 - (BOOL)windowShouldClose:(NSWindow *)sender { [sender orderOut:nil]; return NO; }
 - (void)updateStatus:(NSString *)text {
     if (![NSThread isMainThread]) { dispatch_async(dispatch_get_main_queue(), ^{ [self updateStatus:text]; }); return; }
-    _status.stringValue = text; PDLog(text);
+    _status.stringValue = text; [self updateDashboard]; PDLog(text);
 }
 - (void)addSetupItemsToMenu:(NSMenu *)menu {
     NSMenuItem *update=[menu addItemWithTitle:@"업데이트 확인…" action:@selector(checkUpdates:) keyEquivalent:@""];
@@ -369,10 +428,26 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     security.target = self;
     NSMenuItem *guide = [menu addItemWithTitle:@"설치·권한 안내…" action:@selector(setupGuide:) keyEquivalent:@""];
     guide.target = self;
+    NSMenuItem *support=[menu addItemWithTitle:@"버그 신고 및 문의…" action:@selector(support:) keyEquivalent:@""];
+    support.target=self;
     NSMenuItem *repair=[menu addItemWithTitle:@"화면 기록 승인 복구…" action:@selector(repairScreenPermission:) keyEquivalent:@""];
     repair.target=self;
 }
 - (void)checkUpdates:(id)sender { [self show:nil]; [_updater check]; }
+- (void)support:(id)sender {
+    NSAlert *alert=[NSAlert new]; alert.messageText=@"버그 신고 및 문의";
+    alert.informativeText=@"studio.prxs@gmail.com\n\n오류, 연결 문제, 기능 제안을 보내 주세요. Mac·패드의 SidePad 버전, 기종과 운영체제 버전, 증상과 재현 순서를 함께 알려 주시면 확인에 도움이 됩니다.";
+    [alert addButtonWithTitle:@"메일 쓰기"]; [alert addButtonWithTitle:@"주소 복사"]; [alert addButtonWithTitle:@"닫기"];
+    NSModalResponse result=[alert runModal];
+    if (result==NSAlertFirstButtonReturn) {
+        NSString *subject=[@"[SidePad] 버그 신고 및 문의" stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet];
+        NSURL *url=[NSURL URLWithString:[@"mailto:studio.prxs@gmail.com?subject=" stringByAppendingString:subject]];
+        if (![NSWorkspace.sharedWorkspace openURL:url]) [self updateStatus:@"메일 앱을 열지 못했습니다. studio.prxs@gmail.com으로 문의해 주세요."];
+    } else if (result==NSAlertSecondButtonReturn) {
+        [NSPasteboard.generalPasteboard clearContents];
+        [NSPasteboard.generalPasteboard setString:@"studio.prxs@gmail.com" forType:NSPasteboardTypeString];
+    }
+}
 - (BOOL)validateMenuItem:(NSMenuItem *)item {
     if (item.action==@selector(checkUpdates:)) return !_updater.busy;
     return YES;
@@ -460,7 +535,8 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     BOOL trusted=AXIsProcessTrusted();
     if(self.inputTrusted && !trusted){[self releasePen];[self releaseTouch];}
     self.inputTrusted=trusted;
-    _penStatus.stringValue=trusted ? [NSString stringWithFormat:@"입력 준비됨 · 펜 %llu회 / 터치 %llu회",_penEvents,_touchEvents] : @"펜·터치 · 손쉬운 사용 권한 필요";
+    _penStatus.stringValue=trusted ? @"펜과 터치를 사용할 수 있습니다." : @"펜·터치 허용이 필요합니다.";
+    [self updateDashboard];
     if (_active) {
         if (_layoutReady && _virtualDisplay) [_displayLayout saveForDevice:_layoutDevice display:_targetDisplay];
         if (_peer && ![_peer isConnected]) { [self pauseForPeer:_peer]; return; }
@@ -697,6 +773,7 @@ static void PDEncoded(void *refcon, void *source, OSStatus status, VTEncodeInfoF
     [_cursorPeer close]; _cursorPeer = nil;
     [_audioPeer close];_audioPeer=nil;
     _virtualDisplay = nil; _targetDisplay = 0;
+    _detail.stringValue=@"다시 연결하면 기존 설정과 모니터 배열을 복원합니다.";
     _startButton.enabled = YES; _stopButton.enabled = NO; _mode.enabled = YES; _resolution.enabled = YES; _rate.enabled = YES;
     _statusItem.button.title = @"▣ SidePad"; [self updateStatus:@"화면 전송을 중지했습니다."];
 }

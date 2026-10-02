@@ -1,4 +1,4 @@
-SidePad 1.9 · 사이드패드
+SidePad 1.10 · 사이드패드
 
 Android 패드를 USB-C로 Mac의 확장 모니터로 사용합니다.
 
@@ -58,6 +58,7 @@ SidePad 사용 중 발생한 오류, 연결 문제, 기능 제안 및 기타 문
 - 발생한 증상과 문제가 발생하기까지의 순서
 - 오류 메시지 또는 화면 캡처(선택)
 메일 제목 예시: [SidePad] 패드 연결 오류 문의
+Mac 앱 하단의 버그 신고 · 문의 버튼 또는 SidePad 메뉴에서 메일 쓰기와 주소 복사를 이용할 수 있습니다.
 
 GitHub: https://github.com/studioprxs-cmd/sidepad
 아이콘: 내장 image_gen으로 제작. 제작 프롬프트는 소스의 assets/icon-prompts.txt에 수록했습니다.
