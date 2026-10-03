@@ -4,7 +4,7 @@
 // Only a new foreground interval or an explicit Mac start can undo a manual stop.
 static NSString *PDForegroundID(NSString *hello, NSString *token) {
     NSArray<NSString *> *parts = [hello componentsSeparatedByString:@" "];
-    if (parts.count != 3 || ![parts[0] isEqualToString:@"PADDISPLAY/2"] ||
+    if (parts.count != 3 || ![parts[0] isEqualToString:@"PADDISPLAY/3"] ||
         !token.length || ![parts[1] isEqualToString:token]) return nil;
     return [[NSUUID alloc] initWithUUIDString:parts[2]].UUIDString;
 }
@@ -14,6 +14,7 @@ static NSString *PDForegroundID(NSString *hello, NSString *token) {
 @property(nonatomic, copy, readonly) NSString *currentID;
 - (NSString *)prepareLaunch;
 - (BOOL)acceptID:(NSString *)identifier;
+- (BOOL)canAcceptID:(NSString *)identifier;
 - (void)blockCurrent;
 @end
 
@@ -30,10 +31,14 @@ static NSString *PDForegroundID(NSString *hello, NSString *token) {
     return _currentID;
 }
 - (BOOL)acceptID:(NSString *)identifier {
+    if(![self canAcceptID:identifier])return NO;
     NSString *normalized = [[NSUUID alloc] initWithUUIDString:identifier].UUIDString;
-    if (!_paired || !normalized || [_blockedIDs containsObject:normalized]) return NO;
     _currentID = normalized;
     return YES;
+}
+- (BOOL)canAcceptID:(NSString *)identifier {
+    NSString *normalized=[[NSUUID alloc] initWithUUIDString:identifier].UUIDString;
+    return _paired && normalized && ![_blockedIDs containsObject:normalized];
 }
 - (void)blockCurrent {
     if (_currentID) [_blockedIDs addObject:_currentID];

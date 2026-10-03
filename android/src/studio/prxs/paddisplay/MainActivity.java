@@ -3,6 +3,7 @@ package studio.prxs.paddisplay;
 import android.app.Activity;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.graphics.Color;
@@ -33,6 +34,7 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 import org.json.JSONObject;
 import java.io.DataInputStream;
+import java.io.BufferedInputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -103,14 +105,11 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     }
     private void requestFastDisplay() {
         Display display = getWindowManager().getDefaultDisplay();
+        Display.Mode mode=DeviceProfile.preferredMode(display);
         WindowManager.LayoutParams attrs = getWindow().getAttributes();
-        for (Display.Mode mode : display.getSupportedModes()) {
-            if (Math.abs(mode.getRefreshRate()-120f)<1f) {
-                attrs.preferredDisplayModeId=mode.getModeId(); attrs.preferredRefreshRate=120f;
-                getWindow().setAttributes(attrs);
-                Log.i("PadDisplay","requested-display-hz=120 mode="+mode.getModeId()); break;
-            }
-        }
+        attrs.preferredDisplayModeId=mode.getModeId(); attrs.preferredRefreshRate=mode.getRefreshRate();
+        getWindow().setAttributes(attrs);
+        Log.i("PadDisplay","requested-display-hz="+mode.getRefreshRate()+" mode="+mode.getModeId());
     }
     @Override protected void onResume() {
         super.onResume(); resumed = true;
@@ -123,7 +122,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     @Override protected void onPause() { resumed = false; stopSession(); super.onPause(); }
     @Override public void surfaceCreated(SurfaceHolder holder) {
         hasSurface = true;
-        if(android.os.Build.VERSION.SDK_INT>=30) holder.getSurface().setFrameRate(120f,Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
+        if(android.os.Build.VERSION.SDK_INT>=30) holder.getSurface().setFrameRate(
+            DeviceProfile.preferredMode(getWindowManager().getDefaultDisplay()).getRefreshRate(),Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
         cursor.createLayer(); startIfReady();
     }
     @Override public void surfaceChanged(SurfaceHolder holder, int fmt, int w, int h) { }
@@ -206,6 +206,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         Bitmap image;
         float hotX=10,hotY=10;
         SurfaceControl layer;
+        Surface layerSurface;
+        int layerWidth,layerHeight;
         volatile float x, y; volatile boolean visible;
         boolean poseApplied, appliedVisible;
         float appliedX, appliedY;
@@ -216,38 +218,45 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
             BitmapFactory.Options options=new BitmapFactory.Options();options.inScaled=false;
             image=BitmapFactory.decodeResource(getResources(),resource,options);
         }
-        synchronized void setImage(byte[] data) {
+        void setImage(byte[] data) {
             if(data.length<=8 || data.length>512*1024)return;
             ByteBuffer values=ByteBuffer.wrap(data);float hx=values.getFloat(),hy=values.getFloat();
             Bitmap next=BitmapFactory.decodeByteArray(data,8,data.length-8);
             if(next==null || next.getWidth()>512 || next.getHeight()>512 || !Float.isFinite(hx) || !Float.isFinite(hy))return;
-            image=next;hotX=hx;hotY=hy;
-            createLayer();position(x,y,visible);
+            synchronized(this){
+                image=next;hotX=hx;hotY=hy;
+                createLayer();position(x,y,visible);
+            }
             Log.i("PadDisplay","cursor-image=macOS size="+image.getWidth()+"x"+image.getHeight());
         }
         synchronized void createLayer() {
             if(android.os.Build.VERSION.SDK_INT<29) return;
-            releaseLayer();
             try {
+                if(layer!=null && layer.isValid() && layerSurface!=null && layerSurface.isValid() &&
+                    layerWidth>=image.getWidth() && layerHeight>=image.getHeight()){
+                    drawLayer();return;
+                }
+                releaseLayer();
                 SurfaceControl parent=video.getSurfaceControl();
                 if(parent==null || !parent.isValid())return;
+                layerWidth=Math.max(128,image.getWidth());layerHeight=Math.max(128,image.getHeight());
                 layer=new SurfaceControl.Builder().setName("PadDisplay-Cursor")
-                    .setParent(parent).setBufferSize(image.getWidth(),image.getHeight()).setFormat(PixelFormat.TRANSLUCENT).build();
-                Surface surface=new Surface(layer);
-                try {
-                    Canvas canvas=surface.lockCanvas(null);
-                    canvas.drawColor(Color.TRANSPARENT,PorterDuff.Mode.CLEAR);
-                    canvas.drawBitmap(image,0,0,paint);
-                    surface.unlockCanvasAndPost(canvas);
-                } finally { surface.release(); }
+                    .setParent(parent).setBufferSize(layerWidth,layerHeight).setFormat(PixelFormat.TRANSLUCENT).build();
+                layerSurface=new Surface(layer);drawLayer();
                 try(SurfaceControl.Transaction transaction=new SurfaceControl.Transaction()) {
                     transaction.setLayer(layer,10).setVisibility(layer,false).apply();
                 }
                 Log.i("PadDisplay","cursor-renderer=SurfaceControl direct-compositor=true");
             } catch(Exception e) { Log.w("PadDisplay","Cursor compositor fallback",e);releaseLayer(); }
         }
+        private void drawLayer() {
+            Canvas canvas=layerSurface.lockCanvas(null);
+            try{canvas.drawColor(Color.TRANSPARENT,PorterDuff.Mode.CLEAR);canvas.drawBitmap(image,0,0,paint);}
+            finally{layerSurface.unlockCanvasAndPost(canvas);}
+        }
         synchronized void releaseLayer() {
             poseApplied=false;
+            if(layerSurface!=null){layerSurface.release();layerSurface=null;}
             if(layer!=null) {
                 try(SurfaceControl.Transaction transaction=new SurfaceControl.Transaction()) {
                     transaction.reparent(layer,null).apply();
@@ -285,18 +294,19 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     private MediaCodec createDecoder(int width, int height, int fps) throws Exception {
         String selected = null; int best = -1;
         for (MediaCodecInfo info : new MediaCodecList(MediaCodecList.ALL_CODECS).getCodecInfos()) {
-            if (info.isEncoder() || info.getName().contains("secure")) continue;
+            if (!DeviceProfile.supports(info,width,height,fps)) continue;
             try {
                 MediaCodecInfo.CodecCapabilities caps = info.getCapabilitiesForType("video/avc");
                 if (!caps.getVideoCapabilities().areSizeAndRateSupported(width, height, fps)) continue;
                 int score = 0;
-                if (android.os.Build.VERSION.SDK_INT >= 29 && info.isHardwareAccelerated()) score += 100;
+                if (android.os.Build.VERSION.SDK_INT >= 29 && info.isHardwareAccelerated()) score += 1000;
                 if (android.os.Build.VERSION.SDK_INT >= 30 && caps.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency)) score += 200;
                 if (info.getName().contains("lowlatency")) score += 100;
                 if (score > best) { selected = info.getName(); best = score; }
             } catch (IllegalArgumentException ignored) { }
         }
-        return selected == null ? MediaCodec.createDecoderByType("video/avc") : MediaCodec.createByCodecName(selected);
+        if(selected==null)throw new Exception("패드가 이 해상도와 프레임 속도를 지원하지 않습니다.");
+        return MediaCodec.createByCodecName(selected);
     }
 
     private static final class InputPacket {
@@ -310,9 +320,43 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         volatile Socket cursorSocket;
         volatile OutputStream cursorOutput;
         final Object cursorWriteLock=new Object();
+        final Object controlWriteLock=new Object();
         final ArrayDeque<InputPacket> inputEvents=new ArrayDeque<>();
         final UsbAudio audio;
         Session(String secret) { this.secret = secret;audio=new UsbAudio(MainActivity.this,secret); }
+        private void status(String text) {
+            ui.post(()->{if(session==this && resumed){status.setText(text);status.setVisibility(View.VISIBLE);}});
+        }
+        private void control(Socket target,int type,JSONObject json) throws Exception {
+            byte[] data=json.toString().getBytes(StandardCharsets.UTF_8);
+            synchronized(controlWriteLock) {
+                if(!active.get() || socket!=target)return;
+                ByteBuffer packet=ByteBuffer.allocate(5+data.length);packet.put((byte)type).putInt(data.length).put(data);
+                OutputStream out=target.getOutputStream();out.write(packet.array());out.flush();
+            }
+        }
+        private void decoderFailure(Socket target,String reason) {
+            if(!active.get() || socket!=target)return;
+            try{control(target,13,new JSONObject().put("error","decoder"));}catch(Exception ignored){}
+            status("패드에서 영상을 표시하지 못했습니다.\nMac에서 해상도를 낮추고 다시 연결해 주세요.");
+            Log.e("PadDisplay","receiver decoder failed: "+reason);stop();
+        }
+        private void report(Socket target,StreamStats stats) {
+            boolean announced=false;long lastReport=0;
+            try {
+                while(active.get() && socket==target && !target.isClosed()) {
+                    long now=System.nanoTime();boolean rendered=stats.hasRendered();
+                    if((rendered && !announced) || now-lastReport>=1_000_000_000L) {
+                        StreamStats.Sample s=stats.sample(now);
+                        control(target,12,new JSONObject().put("rendered",s.rendered).put("received",s.received)
+                            .put("submitted",s.submitted).put("dropped",s.dropped).put("fps",s.fps).put("decodeMs",s.decodeMs)
+                            .put("panelHz",getWindowManager().getDefaultDisplay().getRefreshRate()));
+                        announced=rendered;lastReport=now;
+                    }
+                    Thread.sleep(rendered ? 1000 : 50);
+                }
+            } catch(Exception error){if(active.get() && socket==target)try{target.close();}catch(Exception ignored){}}
+        }
         void stop() { active.set(false);audio.stop(); synchronized(inputEvents){inputEvents.notifyAll();} try { if (socket != null) socket.close(); } catch (Exception ignored) { } try { if(cursorSocket!=null)cursorSocket.close(); } catch(Exception ignored){} }
         void sendInput(int type,byte[] data) {
             synchronized(inputEvents) {
@@ -342,22 +386,34 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         @Override public void run() {
             new Thread(audio,"PadDisplay-Audio").start();
             new Thread(this::sendInputs,"PadDisplay-PenInput").start();
-            Thread cursorThread = new Thread(this::receiveCursor, "PadDisplay-Cursor"); cursorThread.start();
+            new Thread(this::receiveCursor,"PadDisplay-Cursor").start();
             while (active.get()) {
                 MediaCodec decoder = null;
-                Thread renderer = null;
+                Thread renderer = null, reporter = null;
+                HandlerThread callbacks = new HandlerThread("SidePad-FrameTiming");callbacks.start();
                 AtomicBoolean decoding = new AtomicBoolean(false);
+                String phase="connect";
+                Socket current=new Socket();socket=current;
+                StreamStats stats=new StreamStats(System.nanoTime());
                 try {
-                    showStatus("USB 연결 중…\n맥의 SidePad를 실행해 주세요.");
-                    Socket current = new Socket(); socket = current;
+                    status("USB 연결 중…\nMac과 패드의 화면 설정을 확인하고 있습니다.");
                     current.setTcpNoDelay(true);
                     current.connect(new InetSocketAddress("127.0.0.1", 28765), 3000);
                     if (!active.get()) { current.close(); break; }
-                    // Idle desktops need not produce frames, so no socket read timeout is used.
                     OutputStream out = current.getOutputStream();
-                    out.write(("PADDISPLAY/2 " + secret + " " + foreground + "\n").getBytes(StandardCharsets.UTF_8)); out.flush();
+                    out.write(("PADDISPLAY/3 " + secret + " " + foreground + "\n").getBytes(StandardCharsets.UTF_8)); out.flush();
                     DataInputStream input = new DataInputStream(current.getInputStream());
-                    long received = 0;
+                    current.setSoTimeout(10000);
+                    int requestType=input.readUnsignedByte(),requestLength=input.readInt();
+                    if(requestType!=14 || requestLength<2 || requestLength>16384)throw new Exception("Mac과 패드 앱을 함께 업데이트해 주세요.");
+                    byte[] requestBytes=new byte[requestLength];input.readFully(requestBytes);
+                    JSONObject request=new JSONObject(new String(requestBytes,StandardCharsets.UTF_8));
+                    phase="profile";
+                    JSONObject profile=DeviceProfile.capabilities(getWindowManager().getDefaultDisplay(),request.optDouble("aspect",0));
+                    control(current,11,profile);
+                    Log.i("PadDisplay","receiver-profile="+profile);
+                    phase="stream";current.setSoTimeout(0);
+                    reporter=new Thread(()->report(current,stats),"SidePad-ReceiverStatus");reporter.start();
                     while (active.get()) {
                         int type = input.readUnsignedByte();
                         int length = input.readInt();
@@ -365,11 +421,12 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                         byte[] data = new byte[length]; input.readFully(data);
                         if (type == 1) {
                             if (decoder != null) continue;
+                            phase="decoder";
                             JSONObject config = new JSONObject(new String(data, StandardCharsets.UTF_8));
                             int w = config.getInt("width"), h = config.getInt("height");
                             int fps = config.optInt("fps", 60);
-                            if (w < 16 || h < 16 || w > 4096 || h > 4096) throw new Exception("지원하지 않는 해상도");
-                            ui.post(() -> { videoWidth = w; videoHeight = h; fitVideo(); });
+                            if (w < 16 || h < 16 || w > 4096 || h > 4096 || (fps!=30 && fps!=60)) throw new Exception("지원하지 않는 영상 설정");
+                            ui.post(() -> { if(session==this && socket==current){videoWidth = w; videoHeight = h; fitVideo();} });
                             MediaFormat format = MediaFormat.createVideoFormat("video/avc", w, h);
                             format.setByteBuffer("csd-0", ByteBuffer.wrap(Base64.decode(config.getString("sps"), 0)));
                             format.setByteBuffer("csd-1", ByteBuffer.wrap(Base64.decode(config.getString("pps"), 0)));
@@ -377,39 +434,42 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                             format.setInteger(MediaFormat.KEY_PRIORITY, 0);
                             format.setInteger(MediaFormat.KEY_OPERATING_RATE, fps);
                             format.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
-                            if (android.os.Build.VERSION.SDK_INT >= 30) format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1);
                             decoder = createDecoder(w, h, fps);
+                            if (android.os.Build.VERSION.SDK_INT >= 30 && decoder.getCodecInfo().getCapabilitiesForType("video/avc")
+                                .isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency))format.setInteger(MediaFormat.KEY_LOW_LATENCY,1);
                             decoder.configure(format, video.getHolder().getSurface(), null, 0);
-                            decoder.start();
-                            final MediaCodec codec = decoder; decoding.set(true);
-                            final long[] timing = {0, 0};
+                            final MediaCodec codec = decoder;
                             codec.setOnFrameRenderedListener((mc, pts, nanoTime) -> {
-                                long latency = (System.nanoTime() - pts * 1000) / 1000000;
-                                if (latency >= 0 && latency < 2000) { timing[0] += latency; timing[1]++; }
-                                if (timing[1] == 120) { Log.i("PadDisplay", "decoder-to-display average-ms=" + timing[0]/120); timing[0] = 0; timing[1] = 0; }
-                            }, ui);
+                                if(!active.get() || socket!=current)return;
+                                boolean first=!stats.hasRendered();
+                                // This callback proves display; decoder timing is measured at output below.
+                                stats.rendered(pts,nanoTime);
+                                if(first) {
+                                    Log.i("PadDisplay","first-frame-rendered=true resolution="+w+"x"+h);
+                                    ui.post(()->{if(session==this && socket==current && resumed)status.setVisibility(View.GONE);});
+                                }
+                            },new Handler(callbacks.getLooper()));
+                            decoder.start();decoding.set(true);phase="stream";
                             renderer = new Thread(() -> {
                                 MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
-                                long frames = 0;
                                 try {
                                     while (decoding.get() && active.get()) {
                                         int index = codec.dequeueOutputBuffer(info, 10000);
                                         if (index >= 0) {
+                                            long presentationTimeUs=info.presentationTimeUs;
                                             int next;
                                             while ((next = codec.dequeueOutputBuffer(info, 0)) >= 0) {
-                                                codec.releaseOutputBuffer(index, false); index = next;
+                                                codec.releaseOutputBuffer(index, false);stats.dropped();index = next;presentationTimeUs=info.presentationTimeUs;
                                             }
-                                            codec.releaseOutputBuffer(index, true);
-                                            if (++frames == 1) ui.post(() -> status.setVisibility(View.GONE));
-                                            if (frames % 120 == 0) Log.i("PadDisplay", "rendered=" + frames + " resolution=" + w + "x" + h);
+                                            stats.decoded(presentationTimeUs,System.nanoTime());
+                                            codec.releaseOutputBuffer(index, true);stats.submitted();
                                         }
                                     }
-                                } catch (Exception e) {
-                                    if (active.get() && decoding.get()) { Log.e("PadDisplay", "decoder output", e); try { current.close(); } catch(Exception ignored){} }
-                                }
+                                } catch (Exception e) { if (active.get() && decoding.get())decoderFailure(current,e.toString()); }
                             }, "PadDisplay-Render"); renderer.start();
                             Log.i("PadDisplay", "decoder=" + decoder.getName() + " resolution=" + w + "x" + h);
                         } else if (type == 2 && decoder != null) {
+                            phase="decoder";
                             int index;
                             do { index = decoder.dequeueInputBuffer(10000); } while (index < 0 && active.get());
                             if (index < 0) break;
@@ -417,17 +477,19 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                             if (buffer == null || buffer.capacity() < data.length) throw new Exception("영상 버퍼 크기 초과");
                             buffer.clear(); buffer.put(data);
                             decoder.queueInputBuffer(index, 0, data.length, System.nanoTime()/1000, 0);
-                            received++;
-                            if (received % 120 == 0) Log.i("PadDisplay", "received="+received+" resolution="+videoWidth+"x"+videoHeight);
+                            stats.received();phase="stream";
                         }
                     }
                 } catch (Exception e) {
-                    if (active.get()) { Log.w("PadDisplay", "USB reconnect: " + e); showStatus("연결 대기 중…\nUSB 케이블과 맥의 SidePad를 확인하세요."); }
+                    if(active.get() && (phase.equals("decoder") || phase.equals("profile")))decoderFailure(current,e.toString());
+                    else if(active.get()) { Log.w("PadDisplay", "USB reconnect: " + e); status("연결 대기 중…\nUSB 연결과 Mac의 SidePad를 확인하세요. 두 앱은 같은 버전이어야 합니다."); }
                 } finally {
                     decoding.set(false);
-                    if (renderer != null) try { renderer.join(1000); } catch (InterruptedException ignored) { }
-                    if (decoder != null) { try { decoder.stop(); } catch(Exception ignored){} decoder.release(); }
-                    try { if (socket != null) socket.close(); } catch(Exception ignored){}
+                    try { current.close(); } catch(Exception ignored){}
+                    if(reporter!=null){reporter.interrupt();try{reporter.join(1000);}catch(InterruptedException ignored){}}
+                    if(renderer!=null)try{renderer.join(1000);}catch(InterruptedException ignored){}
+                    if(decoder!=null){try{decoder.stop();}catch(Exception ignored){}decoder.release();}
+                    callbacks.quitSafely();try{callbacks.join(1000);}catch(InterruptedException ignored){}
                 }
                 if (active.get()) try { Thread.sleep(1200); } catch (InterruptedException ignored) { }
             }
@@ -442,25 +504,23 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                     synchronized(cursorWriteLock) {
                         output.write(("PADCURSOR/1 "+secret+"\n").getBytes(StandardCharsets.UTF_8));output.flush();cursorOutput=output;
                     }
-                    DataInputStream input=new DataInputStream(current.getInputStream());long packets=0,lastEcho=0;
+                    DataInputStream input=new DataInputStream(new BufferedInputStream(current.getInputStream(),8192));long lastEcho=0;
                     while(active.get()) {
-                        int type=input.readUnsignedByte(), length=input.readInt();
-                        if(type==6 && length>8 && length<=512*1024) {
-                            byte[] image=new byte[length];input.readFully(image);
-                            if(session==this)cursor.setImage(image);continue;
+                        CursorPackets.Latest latest=CursorPackets.readLatest(input);
+                        byte[] data=latest.position;
+                        if(data!=null){
+                            ByteBuffer values=ByteBuffer.wrap(data);boolean visible=values.get()!=0;
+                            float x=values.getFloat(),y=values.getFloat();
+                            if(session==this)cursor.position(x,y,visible);
+                            long now=SystemClock.uptimeMillis();
+                            if(now-lastEcho>=80) {
+                                ByteBuffer echo=ByteBuffer.allocate(22);echo.put((byte)5).putInt(17).put(data);
+                                synchronized(cursorWriteLock){output.write(echo.array());output.flush();}
+                                lastEcho=now;
+                            }
                         }
-                        if(type!=4 || length!=17)throw new Exception("잘못된 커서 패킷");
-                        byte[] data=new byte[17];input.readFully(data);
-                        ByteBuffer values=ByteBuffer.wrap(data);boolean visible=values.get()!=0;
-                        float x=values.getFloat(),y=values.getFloat();
-                        if(session==this)cursor.position(x,y,visible);
-                        long now=SystemClock.uptimeMillis();
-                        if(++packets%10==0 || now-lastEcho>=100) {
-                            ByteBuffer echo=ByteBuffer.allocate(22);echo.put((byte)5).putInt(17).put(data);
-                            synchronized(cursorWriteLock){output.write(echo.array());output.flush();}
-                            lastEcho=now;
-                        }
-                        if(packets%1200==0)Log.i("PadDisplay","cursor packets="+packets+" separate-channel=true");
+                        // Apply the newest coordinates before decoding a cursor shape.
+                        if(latest.image!=null && session==this)cursor.setImage(latest.image);
                     }
                 } catch(Exception e) {
                     if(active.get())Log.w("PadDisplay","Cursor reconnect: "+e);

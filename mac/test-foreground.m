@@ -20,12 +20,14 @@ int main(void) {
         assert(![session acceptID:nextLaunch]); // Stop while launch is in flight.
         assert(![session acceptID:@"not-a-uuid"]);
         assert(![session acceptID:nil]);
-        NSString *hello = [NSString stringWithFormat:@"PADDISPLAY/2 secret %@", first.lowercaseString];
+        NSString *hello = [NSString stringWithFormat:@"PADDISPLAY/3 secret %@", first.lowercaseString];
         assert([PDForegroundID(hello, @"secret") isEqualToString:first]);
         assert(!PDForegroundID(hello, @"wrong-secret"));
         assert(!PDForegroundID(@"PADDISPLAY/1 secret", @"secret"));
+        assert(!PDForegroundID([hello stringByReplacingOccurrencesOfString:@"/3" withString:@"/2"],@"secret"));
+        assert(![session canAcceptID:nextLaunch]);
         assert(!PDForegroundID([hello stringByAppendingString:@" extra"], @"secret"));
-        assert(!PDForegroundID(@"PADDISPLAY/2 secret invalid", @"secret"));
+        assert(!PDForegroundID(@"PADDISPLAY/3 secret invalid", @"secret"));
         assert(!PDForegroundID(nil, @"secret"));
         puts("Foreground session tests passed");
     }

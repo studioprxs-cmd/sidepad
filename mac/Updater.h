@@ -3,50 +3,75 @@
 
 @interface PDUpdater : NSObject
 @property(nonatomic, readonly) BOOL busy;
+@property(nonatomic, readonly) NSString *availableVersion;
 @property(nonatomic, copy) void (^stateChanged)(NSString *title);
+- (instancetype)initWithSession:(NSURLSession *)session currentVersion:(NSString *)currentVersion;
 - (void)check;
+- (void)checkInBackground;
 @end
 
 @implementation PDUpdater {
     NSURLSession *_session;
+    NSString *_currentVersion;
+    NSDictionary *_availableInfo;
+    NSDate *_lastCheck;
 }
 - (instancetype)init {
-    if ((self=[super init])) {
-        NSURLSessionConfiguration *config=NSURLSessionConfiguration.ephemeralSessionConfiguration;
-        config.timeoutIntervalForRequest=30; config.timeoutIntervalForResource=180;
-        config.requestCachePolicy=NSURLRequestReloadIgnoringLocalCacheData;
-        config.HTTPAdditionalHeaders=@{@"User-Agent":@"SidePad-macOS",@"Accept":@"application/vnd.github+json"};
-        _session=[NSURLSession sessionWithConfiguration:config];
-    }
+    NSURLSessionConfiguration *config=NSURLSessionConfiguration.ephemeralSessionConfiguration;
+    config.timeoutIntervalForRequest=30; config.timeoutIntervalForResource=180;
+    config.requestCachePolicy=NSURLRequestReloadIgnoringLocalCacheData;
+    config.HTTPAdditionalHeaders=@{@"User-Agent":@"SidePad-macOS",@"Accept":@"application/vnd.github+json"};
+    return [self initWithSession:[NSURLSession sessionWithConfiguration:config]
+        currentVersion:[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"]];
+}
+- (instancetype)initWithSession:(NSURLSession *)session currentVersion:(NSString *)currentVersion {
+    if((self=[super init])){_session=session;_currentVersion=[currentVersion copy];}
     return self;
+}
+- (NSString *)availableVersion { return _availableInfo[@"version"]; }
+- (void)publishState {
+    if(_stateChanged)_stateChanged(_availableInfo ? [NSString stringWithFormat:@"업데이트 가능 · %@",self.availableVersion] : @"업데이트 확인");
 }
 - (void)finishWithTitle:(NSString *)title message:(NSString *)message {
     dispatch_async(dispatch_get_main_queue(), ^{
         self->_busy=NO;
-        if (self.stateChanged) self.stateChanged(@"업데이트 확인");
+        [self publishState];
         NSAlert *alert=[NSAlert new]; alert.messageText=title; alert.informativeText=message;
         [alert addButtonWithTitle:@"확인"]; [alert runModal];
     });
 }
-- (void)check {
+- (void)check { [self checkPresentingResult:YES]; }
+- (void)checkInBackground {
+    if(_lastCheck && -_lastCheck.timeIntervalSinceNow<6*60*60)return;
+    [self checkPresentingResult:NO];
+}
+- (void)checkPresentingResult:(BOOL)present {
     if (_busy) return;
-    _busy=YES; if (_stateChanged) _stateChanged(@"버전 확인 중…");
+    _busy=YES;_lastCheck=NSDate.date;
+    if(present && _stateChanged)_stateChanged(@"버전 확인 중…");else [self publishState];
     NSURL *url=[NSURL URLWithString:@"https://api.github.com/repos/studioprxs-cmd/sidepad/releases/latest"];
     [[_session dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (error || [(NSHTTPURLResponse *)response statusCode]!=200 || data.length>1024*1024) {
-            [self finishWithTitle:@"업데이트를 확인하지 못했습니다" message:error.localizedDescription ?: @"인터넷 연결을 확인한 뒤 다시 눌러 주세요. 잠시 뒤 다시 시도해야 할 수도 있습니다."]; return;
-        }
-        NSDictionary *info=PDUpdateInfo([NSJSONSerialization JSONObjectWithData:data options:0 error:nil]);
-        if (!info) { [self finishWithTitle:@"업데이트 정보를 확인하지 못했습니다" message:@"공식 배포 파일이 준비되지 않았습니다. 잠시 뒤 다시 시도해 주세요."]; return; }
-        NSString *current=[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
-        if (!PDIsNewerVersion(info[@"version"],current)) {
-            [self finishWithTitle:@"최신 버전입니다" message:[NSString stringWithFormat:@"현재 SidePad %@을 사용하고 있습니다.",current]]; return;
-        }
+        BOOL valid=!error && [(NSHTTPURLResponse *)response statusCode]==200 && data.length>0 && data.length<=1024*1024;
+        NSDictionary *info=valid ? PDUpdateInfo([NSJSONSerialization JSONObjectWithData:data options:0 error:nil]) : nil;
         dispatch_async(dispatch_get_main_queue(), ^{
+            self->_busy=NO;
+            if(!info){
+                // A failed automatic check is silent and never erases a known update.
+                [self publishState];
+                if(present)[self finishWithTitle:@"업데이트를 확인하지 못했습니다" message:error.localizedDescription ?: @"인터넷 연결 또는 공식 배포 파일을 확인하지 못했습니다. 잠시 뒤 다시 눌러 주세요."];
+                return;
+            }
+            self->_availableInfo=PDIsNewerVersion(info[@"version"],self->_currentVersion) ? info : nil;
+            [self publishState];
+            if(!present)return;
+            if(!self->_availableInfo){
+                [self finishWithTitle:@"최신 버전입니다" message:[NSString stringWithFormat:@"현재 SidePad %@을 사용하고 있습니다.",self->_currentVersion]];return;
+            }
+            self->_busy=YES;[self publishState];
             NSAlert *alert=[NSAlert new]; alert.messageText=[NSString stringWithFormat:@"SidePad %@ 업데이트",info[@"version"]];
-            alert.informativeText=[NSString stringWithFormat:@"현재 버전 %@\n\n설정은 유지됩니다. 설치가 끝나면 Mac 앱을 다시 열고, 연결된 패드 앱도 업데이트합니다. 화면 연결은 잠시 중지됩니다.",current];
+            alert.informativeText=[NSString stringWithFormat:@"현재 버전 %@\n\n설정은 유지됩니다. 설치가 끝나면 Mac 앱을 다시 열고, 연결된 패드 앱도 업데이트합니다. 화면 연결은 잠시 중지됩니다.",self->_currentVersion];
             [alert addButtonWithTitle:@"업데이트 설치"]; [alert addButtonWithTitle:@"나중에"];
-            if ([alert runModal]!=NSAlertFirstButtonReturn) { self->_busy=NO; if (self.stateChanged) self.stateChanged(@"업데이트 확인"); return; }
+            if ([alert runModal]!=NSAlertFirstButtonReturn) { self->_busy=NO; [self publishState]; return; }
             [self install:info];
         });
     }] resume];
