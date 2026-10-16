@@ -95,7 +95,13 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         root.addView(status, new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER));
         setContentView(root);
         showStatus("SidePad\nUSB를 연결하고 맥에서 ‘연결 시작’을 누르세요.");
+        status.setOnClickListener(v -> openModes());
     }
+    private void openModes() {
+        startActivity(new android.content.Intent(this, HomeActivity.class).putExtra("choose", true));
+        finish();
+    }
+    @Override public void onBackPressed() { openModes(); }
     @Override protected void onNewIntent(android.content.Intent intent) {
         super.onNewIntent(intent); setIntent(intent);
         String next = intent.getStringExtra("token");

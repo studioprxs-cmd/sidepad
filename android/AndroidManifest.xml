@@ -1,10 +1,15 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="studio.prxs.paddisplay" android:versionCode="15" android:versionName="1.11">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="studio.prxs.paddisplay" android:versionCode="16" android:versionName="1.12-airplay-preview">
   <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35" />
   <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+  <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+  <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
   <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
   <application android:label="SidePad" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:theme="@android:style/Theme.Material.NoActionBar" android:allowBackup="false" android:usesCleartextTraffic="false">
-    <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop" android:screenOrientation="userLandscape" android:configChanges="orientation|screenSize|keyboardHidden">
+    <activity android:name=".HomeActivity" android:exported="true" android:launchMode="singleTask" android:screenOrientation="userLandscape">
       <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
     </activity>
+    <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop" android:screenOrientation="userLandscape" android:configChanges="orientation|screenSize|keyboardHidden" />
+    <activity android:name=".AirPlayActivity" android:exported="false" android:screenOrientation="userLandscape" android:configChanges="orientation|screenSize|keyboardHidden" />
   </application>
 </manifest>

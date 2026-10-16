@@ -8,6 +8,8 @@
 !/mac/
 !/tests/
 !/assets/
+!/docs/
+!/LICENSE-Android-AirPlay
 
 # Signing material and generated files must remain local.
 **/.DS_Store
@@ -19,3 +21,7 @@
 **/*.dex
 **/*.apk
 **/*.app/
+**/__pycache__/
+**/*.pyc
+/android/airplay/jniLibs/
+/android/airplay/downloads/

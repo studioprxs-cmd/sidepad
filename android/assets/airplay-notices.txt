@@ -1,0 +1,24 @@
+SidePad — AirPlay preview
+
+AirPlay support uses the native engine from android-airplay-server v0.0.31,
+Copyright (c) jqssun and contributors, under the GNU GPL version 3.
+Source: https://github.com/jqssun/android-airplay-server
+Exact revision: c8defdd70d7e6a04f4f1b71d353653682d594106
+
+The engine incorporates UxPlay (FDH2, antimof, FD-, dsafa22, Juho Vähä-Herttua
+and contributors), PlayFair (EstebanKubata), llhttp (Fedor Indutny and
+contributors), libplist (libimobiledevice contributors), OpenSSL (The OpenSSL
+Project Authors), FFmpeg (FFmpeg contributors), and Oboe (Google).
+
+Licenses include GPL-3.0, LGPL-2.1-or-later, MIT, Apache-2.0 and the LLVM
+license with exceptions. Original copyright and license notices remain in
+the corresponding source projects. Exact dependency revisions and binary
+hashes are listed in android/airplay/engine.lock.json in the SidePad source.
+
+The combined AirPlay-enabled Android build and the new integration code are
+distributed under GPL-3.0. Full GPL text: assets/airplay-GPL-3.0.txt.
+Complete dependency license texts: assets/airplay-third-party-licenses.txt.
+SidePad source: https://github.com/studioprxs-cmd/sidepad
+
+SidePad is not affiliated with or endorsed by Apple Inc.
+AirPlay is a trademark of Apple Inc.

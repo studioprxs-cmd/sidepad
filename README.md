@@ -6,6 +6,11 @@
 
 A native macOS + Android experiment for a wired second display, with a separate low-latency cursor channel, pen input and finger touch.
 
+**개발 중: Android 1.12 AirPlay 미리보기** — 패드에서 ‘아이폰 화면 미러링’을 선택하면
+아이폰의 기본 제어 센터에서 연결하는 수신 모드를 준비합니다. 기존 Mac USB 모드와
+선택해 사용하며, 같은 Wi-Fi가 필요합니다. AirPlay 기능은 공개 미리보기 단계입니다.
+[미리보기 다운로드](https://github.com/studioprxs-cmd/sidepad/releases/tag/v1.12-airplay-preview)에서 받을 수 있습니다. [사용법·빌드·검증 범위](docs/AirPlay-preview.md)
+
 현재 버전: **1.11** · [변경 내역](CHANGELOG.md)
 
 **[배포 페이지](https://github.com/studioprxs-cmd/sidepad/releases/latest)** · [Mac 앱 다운로드](https://github.com/studioprxs-cmd/sidepad/releases/latest/download/SidePad-macOS.zip) · [Android APK 다운로드](https://github.com/studioprxs-cmd/sidepad/releases/latest/download/SidePad.apk)
@@ -56,7 +61,7 @@ Mac 앱 하단의 **버그 신고 · 문의** 또는 SidePad 메뉴에서 메일
 
 ### 패드 앱을 나갔다가 다시 연결하기
 
-패드에서 홈 화면이나 다른 앱으로 이동하면 화면·소리·입력 전송과 가상 모니터를 정리합니다. Mac이 패드 앱을 다시 실행하거나 화면을 켜지 않습니다. Mac 앱과 USB 연결을 유지한 상태에서 **패드의 SidePad를 다시 열면** 기존 연결 정보, 화면 모드, 해상도, 프레임 속도, 소리 출력과 저장한 모니터 배열로 다시 연결됩니다. Mac의 **연결 시작**으로도 다시 열 수 있습니다.
+패드에서 홈 화면이나 다른 앱으로 이동하면 화면·소리·입력 전송과 가상 모니터를 정리합니다. Mac이 패드 앱을 다시 실행하거나 화면을 켜지 않습니다. 패드의 SidePad 아이콘을 누르면 **연결 방식 선택 화면**을 먼저 표시합니다. Mac 앱과 USB 연결을 유지한 상태에서 **Mac USB 모니터**를 선택하면 기존 연결 정보, 화면 모드, 해상도, 프레임 속도, 소리 출력과 저장한 모니터 배열로 다시 연결됩니다. Mac의 **연결 시작**으로도 USB 모드를 바로 열 수 있습니다.
 
 Mac에서 **중지**를 누른 경우에는 같은 연결의 재시도가 중지를 취소하지 않습니다. 패드에서 앱을 나갔다가 다시 열거나 Mac의 연결 시작을 누르세요. USB 케이블 복구는 연결 경로만 복원하며 앱을 강제로 실행하지 않습니다. 다른 패드로 바꾸면 Mac에서 연결 시작을 눌러 새 기기를 연결하세요.
 

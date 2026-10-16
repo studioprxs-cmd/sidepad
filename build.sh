@@ -27,14 +27,29 @@ if [ ! -f private/signing.keystore ]; then
 fi
 "$pd_bt/aapt2" compile --dir android/res -o build/resources.zip
 "$pd_bt/aapt2" link -I "$pd_platform" --manifest android/AndroidManifest.xml -o build/base.apk build/resources.zip
-javac -source 11 -target 11 -classpath "$pd_platform" -d build/classes android/src/studio/prxs/paddisplay/*.java
+find android/src -name '*.java' > build/sources.list
+javac -source 11 -target 11 -classpath "$pd_platform" -d build/classes @build/sources.list
 find build/classes -name '*.class' > build/classes.list
 "$pd_bt/d8" --lib "$pd_platform" --min-api 28 --output build/dex @build/classes.list
 cp build/base.apk build/unsigned.apk
 (cd build/dex && zip -q ../unsigned.apk classes.dex)
+python3 android/airplay/prepare_engine.py --verify
+python3 - <<'PY'
+from pathlib import Path
+from zipfile import ZipFile, ZIP_DEFLATED
+with ZipFile('build/unsigned.apk', 'a', compression=ZIP_DEFLATED) as apk:
+    for path in sorted(Path('android/airplay/jniLibs').glob('*/*.so')):
+        apk.write(path, 'lib/' + str(path.relative_to('android/airplay/jniLibs')))
+    for path in sorted(Path('android/assets').rglob('*')):
+        if path.is_file(): apk.write(path, 'assets/' + str(path.relative_to('android/assets')))
+PY
 "$pd_bt/zipalign" -f 4 build/unsigned.apk build/aligned.apk
 "$pd_bt/apksigner" sign --v4-signing-enabled false --ks private/signing.keystore --ks-key-alias paddisplay --ks-pass file:private/key-password --out "$pd_out/SidePad.apk" build/aligned.apk
 "$pd_bt/apksigner" verify "$pd_out/SidePad.apk"
+if [ "${SIDE_PAD_ANDROID_ONLY:-0}" = 1 ]; then
+  printf 'Built: %s\n' "$pd_out/SidePad.apk"
+  exit 0
+fi
 pd_app="$pd_out/SidePad.app"
 mkdir -p "$pd_app/Contents/MacOS" "$pd_app/Contents/Resources"
 clang -fobjc-arc -fmodules -O2 -mmacosx-version-min=14.0 mac/main.m -o "$pd_app/Contents/MacOS/SidePad" -framework Cocoa -framework CoreGraphics -framework ScreenCaptureKit -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework CoreAudio -framework Security -framework ApplicationServices
