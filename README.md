@@ -2,16 +2,15 @@
 
 # SidePad
 
-**USB-C로 안드로이드 패드를 Mac의 확장 모니터로 사용합니다.**
+**안드로이드 패드를 Mac의 USB 확장 모니터나 아이폰 화면 미러링 화면으로 사용합니다.**
 
-A native macOS + Android experiment for a wired second display, with a separate low-latency cursor channel, pen input and finger touch.
+A native macOS + Android app for a wired second display and an opt-in iPhone AirPlay receiver, with a separate low-latency cursor channel, pen input and finger touch in Mac USB mode.
 
-**개발 중: Android 1.12 AirPlay 미리보기** — 패드에서 ‘아이폰 화면 미러링’을 선택하면
-아이폰의 기본 제어 센터에서 연결하는 수신 모드를 준비합니다. 기존 Mac USB 모드와
-선택해 사용하며, 같은 Wi-Fi가 필요합니다. AirPlay 기능은 공개 미리보기 단계입니다.
-[미리보기 다운로드](https://github.com/studioprxs-cmd/sidepad/releases/tag/v1.12-airplay-preview)에서 받을 수 있습니다. [사용법·빌드·검증 범위](docs/AirPlay-preview.md)
+**아이폰 화면 미러링** — 패드에서 해당 모드를 선택하고 아이폰의 **제어 센터 → 화면 미러링 → SidePad**로 연결합니다. 두 기기는 같은 Wi-Fi를 사용하며, 이 모드에는 Mac·USB 케이블·아이폰 앱·Android USB 디버깅이 필요하지 않습니다.
 
-현재 버전: **1.11** · [변경 내역](CHANGELOG.md)
+1.12는 정식 배포이며 기존 Mac 앱의 업데이트 확인에서도 받을 수 있습니다. AirPlay 자체는 제한된 기기에서 확인한 미리보기 기능입니다. [사용법·빌드·검증 범위](docs/AirPlay-preview.md)
+
+현재 버전: **1.12** · [변경 내역](CHANGELOG.md)
 
 **[배포 페이지](https://github.com/studioprxs-cmd/sidepad/releases/latest)** · [Mac 앱 다운로드](https://github.com/studioprxs-cmd/sidepad/releases/latest/download/SidePad-macOS.zip) · [Android APK 다운로드](https://github.com/studioprxs-cmd/sidepad/releases/latest/download/SidePad.apk)
 
@@ -34,7 +33,8 @@ Mac 앱 하단의 **버그 신고 · 문의** 또는 SidePad 메뉴에서 메일
 
 | 항목 | 지원 범위 |
 | --- | --- |
-| 화면 | 확장 모니터 또는 주 화면 복제 |
+| Mac USB 화면 | 확장 모니터 또는 주 화면 복제 |
+| 아이폰 화면 미러링 | 같은 Wi-Fi에서 AirPlay 화면·소리 수신. 패드에서 연결 코드를 확인하고 아이폰 제어 센터에서 연결 |
 | 해상도 | 패드 지원 모드 자동 선택 또는 숫자로 직접 선택. 연결 중 변경 가능 |
 | Retina | 폭 2000픽셀을 넘는 확장 화면은 2배 픽셀로 표시. 예: 2944 × 1840 → 1472 × 920 작업 공간 |
 | 주사율 | 같은 패널 해상도에서 지원하는 모드를 선택하며 커서는 최대 120Hz |
@@ -47,6 +47,17 @@ Mac 앱 하단의 **버그 신고 · 문의** 또는 SidePad 메뉴에서 메일
 120Hz 패널·커서와 영상 프레임 속도는 서로 다릅니다. 이 버전은 영상 120fps를 제공하지 않습니다. 자동 설정은 패드가 보고한 화면 크기와 하드웨어 디코더 지원 범위에서 선택하며, 실제 처리 속도는 기기와 부하에 따라 달라집니다.
 
 ## 설치와 사용
+
+### 아이폰 화면 미러링
+
+1. Android 9 이상 패드에 최신 `SidePad.apk`를 설치하고 아이폰과 같은 Wi-Fi에 연결합니다.
+2. 패드에서 SidePad를 열고 **아이폰 화면 미러링**을 선택합니다.
+3. 아이폰의 **제어 센터 → 화면 미러링 → SidePad · 패드 모델명**을 선택합니다. 비밀번호를 요청하면 패드에 표시된 4자리 연결 코드를 입력합니다.
+4. 패드에서 앱을 나가면 수신을 중지합니다. 앱을 다시 열면 연결 방식을 선택할 수 있습니다.
+
+아이폰 앱, Mac 중계와 USB 디버깅이 필요하지 않습니다. 보호된 영상과 패드 터치로 아이폰 조작은 지원하지 않습니다. 게스트 Wi-Fi의 기기 격리나 멀티캐스트 차단은 기기 검색을 방해할 수 있습니다.
+
+### Mac USB 모니터
 
 필요 환경: Apple Silicon Mac의 macOS 14 이상, Android 9 이상, 데이터 전송이 가능한 USB 케이블, Mac의 ADB. 현재 실제 기기 검증 환경은 Apple Silicon Mac Studio(macOS 27)와 Lenovo Idea Tab Pro(Android 16), Lenovo Tab Pen Plus입니다.
 

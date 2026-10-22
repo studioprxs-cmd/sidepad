@@ -25,7 +25,7 @@
 
 GitHub 및 다운로드
 https://github.com/studioprxs-cmd/sidepad
-https://github.com/studioprxs-cmd/sidepad/releases/tag/v1.12-airplay-preview
+https://github.com/studioprxs-cmd/sidepad/releases/latest
 
 사용 중 문제가 있으면 아이폰·패드 모델, OS 버전과 증상을 함께 알려주시면 개선에 도움이 됩니다.
 버그 제보·문의: studio.prxs@gmail.com

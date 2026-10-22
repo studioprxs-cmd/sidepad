@@ -1,6 +1,6 @@
-# SidePad AirPlay preview
+# SidePad AirPlay
 
-Android 1.12-airplay-preview adds an opt-in AirPlay screen-mirroring receiver.
+SidePad 1.12 is a stable app release and includes an opt-in AirPlay screen-mirroring receiver as a preview feature. The stable app release is available through the Mac updater; the AirPlay validation limits below still apply.
 The iPhone uses Control Centre → Screen Mirroring; no iOS SidePad application,
 Mac relay, Android developer mode, or USB cable is required for this mode.
 
@@ -78,7 +78,7 @@ Use the pinned repository's Android SDK/NDK settings, patch tasks and Gradle
 wrapper. Signing can differ while the native source revision remains the same;
 the release-import path intentionally accepts only the official APK hash.
 Before publishing a modified APK, publish the SidePad integration source and the
-complete corresponding native source/dependency notices with it. The public preview release includes a separate complete native source archive
+complete corresponding native source/dependency notices with it. The release includes a separate complete native source archive
 (`SidePad-AirPlay-engine-source.zip`) and the SidePad integration source archive.
 
 ## Verification
